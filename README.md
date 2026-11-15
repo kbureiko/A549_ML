@@ -86,6 +86,7 @@ All settings are in `src/a549_enhancers/config.py`.
   Supplementary Figure S7.
 - Multi-panel figures that combine R panels were assembled in a vector-graphics program.
 
+[![DOI](https://zenodo.org/badge/1458427863.svg)](https://doi.org/10.5281/zenodo.24238693)
 ## Licence and citation
 
 MIT licence (see `LICENSE`). Please cite the article (see `CITATION.cff`).
