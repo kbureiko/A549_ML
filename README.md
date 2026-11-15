@@ -90,4 +90,5 @@ All settings are in `src/a549_enhancers/config.py`.
 ## Licence and citation
 
 MIT licence (see `LICENSE`). Please cite the article (see `CITATION.cff`).
+
 [![DOI](https://zenodo.org/badge/1458427863.svg)](https://doi.org/10.5281/zenodo.24238693)
