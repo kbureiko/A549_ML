@@ -1,0 +1,53 @@
+# ---- local configuration: never commit (holds the folder names of your computer) ----
+paths.toml
+.Renviron
+.env
+
+# ---- data and results stay outside the repository; these rules are a second line of defence ----
+/data/
+/results/
+/ml_outputs/
+*.csv
+*.tsv
+*.tsv.gz
+*.csv.gz
+*.tab.gz
+*.bed
+*.bed.gz
+*.bw
+*.bigWig
+*.bam
+*.npz
+*.joblib
+*.pkl
+*.pickle
+*.cbm
+*.rds
+*.RData
+*.xlsx
+*.pdf
+*.png
+*.svg
+catboost_info/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+.ipynb_checkpoints/
+
+# ---- R ----
+.Rhistory
+.Rproj.user/
+*.Rproj
+
+# ---- editors / OS ----
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

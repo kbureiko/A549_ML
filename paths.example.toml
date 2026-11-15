@@ -1,0 +1,40 @@
+# Copy this file to paths.toml (same folder) and fill in the folders of your computer.
+# paths.toml is ignored by git, so your folder names never reach the repository.
+# Write paths with forward slashes, also on Windows:  "D:/a549/ml_inputs"
+# To keep the file somewhere else, set the environment variable A549_PATHS to its full path.
+
+[inputs]
+# The six input tables of the classifiers and the GR peak file (docs/data.md, section 1)
+ml_inputs = "/path/to/ml_inputs"
+
+[results]
+# scripts/01_run_cv.py writes one folder per run here; all other model scripts read them
+ml_outputs = "/path/to/ml_outputs"
+# Tables that the analysis and figure scripts read and write (docs/data.md, section 2)
+analysis = "/path/to/analysis"
+# Figures and their source tables. Optional; default: <analysis>/figures
+# figures = "/path/to/figures"
+
+[runs]
+# Folder names (inside ml_outputs) of the three cross-validation runs that the downstream scripts use.
+# A name is "<run prefix>__<task>__thr_max_f1".
+nr_vs_up = "<date>__nr_vs_up__thr_max_f1"
+up_vs_dn = "<date>__up_vs_dn__thr_max_f1"
+nr_vs_dn = "<date>__nr_vs_dn__thr_max_f1"
+
+[knockdown]
+# Count tables of the knockdown experiments, read by the R scripts (docs/data.md, section 3)
+proseq_counts = "/path/to/proseq_siEP300_counts"
+brbseq_counts = "/path/to/brbseq_counts"
+
+[layout]
+# Optional. Names of the sub-folders (or files) inside `analysis`; the defaults are shown.
+# Change a name here if your folders are called differently - no script needs editing.
+# chip_matrices   = "deeptools/chip"
+# proseq_matrices = "deeptools/proseq"
+# proseq_ma_table = "deeptools/proseq/A549_MA_plot_data.tsv"
+# enhancer_gene   = "enhancer_gene"
+# abc_links       = "enhancer_gene/ABC_Nasser2021_A549_hg38.tsv.gz"
+# feature_map     = "feature_map"
+# nr_topics       = "nr_topics"
+# knockdown       = "knockdown"

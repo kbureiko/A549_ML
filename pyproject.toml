@@ -1,0 +1,52 @@
+[project]
+name = "a549-enhancers"
+version = "1.0.0"
+description = "Machine-learning classification of glucocorticoid-responsive enhancers in A549 cells: models, validation, feature map and figure code"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Kseniia Bureiko" }]
+keywords = ["enhancers", "glucocorticoid receptor", "PRO-seq", "CatBoost", "LIME", "A549"]
+classifiers = [
+    "Programming Language :: Python :: 3.12",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+# Versions used for the published analysis. uv.lock pins the complete environment.
+dependencies = [
+    "catboost==1.2.10",
+    "joblib>=1.4",
+    "lime==0.2.0.1",
+    "matplotlib==3.10.9",
+    "numpy==2.4.4",
+    "pandas==3.0.2",
+    "pyliftover==0.4.1",
+    "scikit-learn==1.8.0",
+    "scipy==1.17.1",
+    "seaborn==0.13.2",
+    "umap-learn==0.5.12",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/a549_enhancers"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+# The figure and analysis scripts are kept as they were run; they are not reformatted or linted.
+extend-exclude = ["figures", "scripts"]
