@@ -86,7 +86,7 @@ a cell in PyCharm, VS Code or Spyder.
 
 | | |
 |---|---|
-| Classes | UP: p < 0.05 and log2 fold change >= 0.584; DN: p < 0.05 and log2 fold change <= -0.584; NR: all other enhancers. The p-value is the unadjusted p-value of the dex-vs-control comparison (`config.PVAL_COL`). |
+| Classes | UP: p < 0.05 and log2 fold change >= 0.584; DN: p < 0.05 and log2 fold change <= -0.584; NR: all other enhancers. The p-value is the adjusted p-value of the dex-vs-control comparison (`config.PVAL_COL`). |
 | Tasks | NR vs UP (positive UP), UP vs DN (positive UP), NR vs DN (positive DN) |
 | Features | ChIP-seq and ATAC-seq signal tracks as measured: one control and one dex (100 nM, 1 h) track per target, both from the same series (`config.EXCLUDE_COLUMNS` lists the tracks left out; the CREB1 control is the mean of two single-replicate experiments, `config.AVERAGED_TRACKS`). Motifs as present / absent, one representative motif per group of correlated HOMER motifs (`config.MOTIF_SET`); best GRE motif score; annotation, distance to TSS, length, GC content; other enhancers and GR peaks within 50 kb (`config.NEIGHBOURHOOD_FEATURES`). Tables added to the prematrix are matched on the enhancer ID. |
 | Validation | five-fold stratified cross-validation repeated ten times, 50 held-out evaluations (seed 42); fold models are seeded with 42 + split index |
