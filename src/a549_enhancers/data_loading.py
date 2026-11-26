@@ -11,7 +11,14 @@ from .config import (
     EXCLUDE_COLUMNS,
     FILTER_DEX_COLUMNS_TO_100NM_1H,
     DEX_REQUIRED_TERM_GROUPS,
-    ALWAYS_KEEP_FEATURE_COLUMNS
+    ALWAYS_KEEP_FEATURE_COLUMNS,
+    AVERAGED_TRACKS,
+    MOTIF_SET,
+    MOTIF_GROUPS_FILE,
+    GRE_SCORE_SOURCE_COLUMN,
+    GRE_SCORE_FEATURE,
+    NEIGHBOURHOOD_FILE,
+    NEIGHBOURHOOD_FEATURES,
 )
 from .paths import ml_input
 from .utils import read_table
@@ -32,7 +39,14 @@ def load_raw_inputs():
     annotation_additional = read_table(ml_input(ANNOTATION_ADDITIONAL_FILE), sep="\t", index_col=0)
     gc = read_table(ml_input(GC_FILE), sep=";", index_col=0)
 
+    raw_extra = {}
+    if MOTIF_SET == "groups" or GRE_SCORE_SOURCE_COLUMN:
+        raw_extra["motif_groups"] = read_table(ml_input(MOTIF_GROUPS_FILE), sep="\t", index_col=0)
+    if NEIGHBOURHOOD_FEATURES:
+        raw_extra["neighbourhood"] = read_table(ml_input(NEIGHBOURHOOD_FILE), sep="\t", index_col=0)
+
     return {
+        **raw_extra,
         "prematrix": prematrix,
         "atac_scores": atac_scores,
         "motifs_scores": motifs_scores,
@@ -62,6 +76,26 @@ def add_combined_coordinate(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def align_by_enhancer_id(table: pd.DataFrame, enhancer_ids: pd.Series, name: str) -> pd.DataFrame:
+    """
+    Rows of `table` in the order of `enhancer_ids`, matched on its 'enhancer_id' column (chr_start_end), never
+    on row position. Stops if the table has no ID column, repeats an ID, or does not cover every enhancer.
+    """
+    if "enhancer_id" not in table.columns:
+        raise ValueError(f"{name}: no 'enhancer_id' column")
+    if table["enhancer_id"].duplicated().any():
+        raise ValueError(f"{name}: {int(table['enhancer_id'].duplicated().sum())} repeated enhancer IDs")
+    if enhancer_ids.duplicated().any():
+        raise ValueError(f"prematrix: {int(enhancer_ids.duplicated().sum())} repeated enhancer IDs")
+    missing = ~enhancer_ids.isin(table["enhancer_id"])
+    if missing.any():
+        raise ValueError(f"{name}: {int(missing.sum())} of {len(enhancer_ids)} enhancers are not in the table, "
+                         f"for example {enhancer_ids[missing].iloc[0]}. Rebuild it from the current enhancer set.")
+    out = table.set_index("enhancer_id").loc[enhancer_ids.to_numpy()]
+    out.index = enhancer_ids.index
+    return out
+
+
 def build_base_feature_matrix(raw: dict) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
     """
     Rebuild the original feature matrix in a controlled way.
@@ -83,13 +117,50 @@ def build_base_feature_matrix(raw: dict) -> tuple[pd.DataFrame, pd.DataFrame, li
     annotation_additional = raw["annotation_additional"]
     gc = raw["gc"]
 
+    extra = []
+    if "motif_groups" in raw:
+        mg = align_by_enhancer_id(raw["motif_groups"], prematrix["combined"], MOTIF_GROUPS_FILE)
+        if MOTIF_SET == "groups":
+            group_cols = [c for c in mg.columns if c.startswith("motif::")]
+            if not group_cols:
+                raise ValueError(f"{MOTIF_GROUPS_FILE}: no 'motif::' columns")
+            motifs_scores = mg[group_cols].rename(columns=lambda c: c[len("motif::"):])
+        if GRE_SCORE_SOURCE_COLUMN:
+            if GRE_SCORE_SOURCE_COLUMN not in mg.columns:
+                raise ValueError(f"{MOTIF_GROUPS_FILE}: no column {GRE_SCORE_SOURCE_COLUMN!r}")
+            extra.append(mg[[GRE_SCORE_SOURCE_COLUMN]].rename(columns={GRE_SCORE_SOURCE_COLUMN: GRE_SCORE_FEATURE}))
+    elif MOTIF_SET != "original":
+        raise ValueError(f"MOTIF_SET must be 'groups' or 'original', not {MOTIF_SET!r}")
+    if "neighbourhood" in raw:
+        nb = align_by_enhancer_id(raw["neighbourhood"], prematrix["combined"], NEIGHBOURHOOD_FILE)
+        absent = [c for c in NEIGHBOURHOOD_FEATURES if c not in nb.columns]
+        if absent:
+            raise ValueError(f"{NEIGHBOURHOOD_FILE}: missing columns {absent}")
+        extra.append(nb[NEIGHBOURHOOD_FEATURES])
+
     original_motif_cols = motifs_scores.columns.tolist()
+
+    # Tracks averaged into one feature (replicate experiments of one series).
+    prematrix = prematrix.copy()
+    for new_col, sources in AVERAGED_TRACKS.items():
+        absent = [c for c in sources if c not in prematrix.columns]
+        if absent:
+            raise ValueError(f"AVERAGED_TRACKS: columns not in the prematrix: {absent}")
+        at = prematrix.columns.get_loc(sources[0])
+        prematrix.insert(at, new_col, prematrix[sources].mean(axis=1))
+        prematrix = prematrix.drop(columns=sources)
+
+    not_found = [c for c in EXCLUDE_COLUMNS if c not in prematrix.columns]
+    if not_found:
+        print(f"EXCLUDE_COLUMNS: {len(not_found)} names are not in the prematrix: {not_found}")
 
     matrix = (
         prematrix
         .join(atac_scores, how="left")
         .join(motifs_scores, how="left")
     )
+    for table in extra:
+        matrix = matrix.join(table, how="left")
 
     # Annotation handling.
     if isinstance(annotation, pd.DataFrame):

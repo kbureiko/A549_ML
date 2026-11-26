@@ -44,8 +44,8 @@ N_RUNS, FRAC, N_BINS, SEED = 60, 0.8, 20, 20261109
 D = pd.read_csv(FM, low_memory=False)
 D["GR_bound"] = D.GR_bound.astype(str).str.lower().eq("true")
 col = lambda p, t: [c for c in D.columns if c.startswith(p) and t in c][0]
-SF = {"ATAC": "ATAC_ctrl", "H3K27ac": col("H3K27ac_", "_eth_"), "H3K4me1": col("H3K4me1_", "_eth_"),
-      "H3K4me3": col("H3K4me3_", "_eth_"), "Pol II": col("POLR2A_", "_eth_"), "EP300": "EP300_ENCFF842XYY",
+SF = {"ATAC": "ATAC_ctrl", "H3K27ac": "H3K27ac_ENCFF054OOT", "H3K4me1": "H3K4me1_ENCFF580SCK",
+      "H3K4me3": "H3K4me3_ENCFF529CES", "Pol II": col("POLR2A_", "_eth_"), "EP300": "EP300_ENCFF376VNJ",
       "cJUN": "JUN_ENCFF957TUK", "CTCF": "CTCF_ENCFF083AEY", "RAD21": "RAD21_ENCFF778YHU", "H2A.Z": col("H2AFZ_", "_eth_"),
       "H3K27me3": col("H3K27me3_", "_eth_"), "GR (dex)": col("NR3C1_", "_dex_"), "FOXA1": col("FOXA1_", "_eth_")}
 nr = D["class"].eq("NR").values
@@ -107,7 +107,7 @@ print(f"\nchosen K = {K}\n", L.round(2).to_string())
 # dex change (level-adjusted rank change; GR = dex occupancy rank)
 ALL_R = lambda c: 100 * D[c].rank(pct=True)
 CHG = {"GR (dex rank)": ALL_R(col("NR3C1_", "_dex_")).values}
-for lab_, (c0, c1) in {"EP300": ("EP300_ENCFF842XYY", col("EP300_", "_dex_")), "H3K27ac": (col("H3K27ac_", "_eth_"), col("H3K27ac_", "_dex_")),
+for lab_, (c0, c1) in {"EP300": ("EP300_ENCFF376VNJ", col("EP300_", "_dex_")), "H3K27ac": ("H3K27ac_ENCFF054OOT", col("H3K27ac_", "_dex_")),
                        "Pol II": (col("POLR2A_", "_eth_"), col("POLR2A_", "_dex_")), "cohesin (SMC3)": ("SMC3_ENCFF029NYA", col("SMC3_", "_dex_"))}.items():
     r0, r1 = ALL_R(c0), ALL_R(c1)
     b = np.clip((r0 / 100 * N_BINS).astype(int), 0, N_BINS - 1)

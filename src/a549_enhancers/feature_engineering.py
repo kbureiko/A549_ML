@@ -6,6 +6,8 @@ from .config import (
     MOTIF_KEYWORDS,
     MOTIFS_AS_CATEGORICAL_FOR_CATBOOST,
     ANNOTATION_COL,
+    GRE_SCORE_FEATURE,
+    NEIGHBOURHOOD_FEATURES,
 )
 
 
@@ -34,6 +36,9 @@ def identify_motif_columns(
         if any(k in col_l for k in MOTIF_KEYWORDS):
             motif_cols.add(col)
 
+    # continuous sequence and neighbourhood features are never turned into indicators
+    motif_cols -= {GRE_SCORE_FEATURE, *NEIGHBOURHOOD_FEATURES}
+
     return sorted(motif_cols)
 
 
@@ -48,8 +53,8 @@ def binarize_motif_features(
     New columns are named:
         motif_binary::<original_col>
     """
-    X = X.copy()
     mapping = {}
+    binary = {}
 
     for col in motif_cols:
         if col not in X.columns:
@@ -57,10 +62,10 @@ def binarize_motif_features(
 
         new_col = f"motif_binary::{col}"
         raw = pd.to_numeric(X[col], errors="coerce").fillna(0)
-        X[new_col] = (raw > 0).astype(int)
+        binary[new_col] = (raw > 0).astype(int)
         mapping[col] = new_col
 
-    X = X.drop(columns=[c for c in motif_cols if c in X.columns])
+    X = pd.concat([X.drop(columns=list(mapping)), pd.DataFrame(binary, index=X.index)], axis=1)
 
     return X, mapping
 

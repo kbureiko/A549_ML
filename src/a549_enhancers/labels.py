@@ -13,9 +13,9 @@ def generate_multiclass_labels(prematrix_with_ids: pd.DataFrame) -> pd.Series:
     Generate UP / DN / NR labels from prematrix.
 
     UP:
-        adj. p-value < 0.05 and log2FC >= 0.584
+        p-value < 0.05 and log2FC >= 0.584
     DN:
-        adj. p-value < 0.05 and log2FC <= -0.584
+        p-value < 0.05 and log2FC <= -0.584
     NR:
         all other enhancers
     """

@@ -1,6 +1,6 @@
 # =============================================================================
 # Supplementary Figure S2 - correlation between the top features of the three pairwise models
-#   Features: union of the TOP_N features (mean held-out permutation importance over the 25 outer-CV folds) of each
+#   Features: union of the TOP_N features (mean held-out permutation importance over the outer-CV folds) of each
 #   model (NR vs UP, UP vs DN, NR vs DN), the same selection as the UMAP feature set. Non-numeric features
 #   (genomic annotation) are left out.
 #   Clustermap: Spearman correlation over all 8,270 enhancers; rows/columns clustered by average linkage on
@@ -33,22 +33,25 @@ RUNS = {"NR vs UP": RUN_DIRS["nr_vs_up"],
         "NR vs DN": RUN_DIRS["nr_vs_dn"]}
 FINAL = FIGURES; FINAL.mkdir(parents=True, exist_ok=True)
 TOP_N = 30
-EXTRA = ["TEAD4_ENCFF186WSI"]
+EXTRA = [""]
 CUT = 0.5                                                # clusters: dendrogram cut at 1 - rho = CUT
 
 FONT = "Open Sans" if any("Open Sans" in f.name for f in font_manager.fontManager.ttflist) else "DejaVu Sans"
 mpl.rcParams.update({"font.family": [FONT, "DejaVu Sans"], "font.size": 7, "pdf.fonttype": 42, "svg.fonttype": "none"})
 LAYER_COL = {"Dex": "#2B4C7E", "Control": "#9DB9D5", "Genomic": "#3E9651"}
-LAYER_LAB = {"Dex": "Dex-treated (ChIP, ATAC)", "Control": "Control / untreated", "Genomic": "Sequence / genomic"}
+LAYER_LAB = {"Dex": "After dex (ChIP, ATAC, GR peaks nearby)", "Control": "Control / untreated", "Genomic": "Sequence / genomic"}
 TASK_COL = {"NR vs UP": "#D1495B", "UP vs DN": "#7A5195", "NR vs DN": "#3B6FB6"}
 RENAME = {"JUN": "cJUN", "NR3C1": "GR", "H2AFZ": "H2A.Z", "POLR2A": "Pol II", "POLR2AphosphoS2": "Pol II pS2",
-          "Enh_len": "Enhancer length", "gc": "GC content"}
+          "Enh_len": "Enhancer length", "gc": "GC content", "GRE_score": "GRE score",
+          "nbr_enhancers_50kb": "Enhancers ≤50 kb", "nbr_enhancer_distance": "Nearest enhancer",
+          "nbr_GRpeaks_50kb": "GR peaks ≤50 kb", "nbr_strongGRpeaks_50kb": "Strong GR peaks ≤50 kb",
+          "nbr_GRpeak_distance": "Nearest GR peak", "nbr_strongGRpeak_distance": "Nearest strong GR peak"}
 
 
 def layer(f):
-    if f.startswith("motif_binary::") or f in ("Enh_len", "Distance to TSS", "annotation", "gc"):
+    if f.startswith("motif_binary::") or f in ("Enh_len", "Distance to TSS", "annotation", "gc", "GRE_score"):
         return "Genomic"
-    if "_dex_" in f or f == "ATAC_dex_1h":
+    if "_dex_" in f or f == "ATAC_dex_1h" or f.startswith(("nbr_GRpeak", "nbr_strongGRpeak")):
         return "Dex"
     return "Control"
 

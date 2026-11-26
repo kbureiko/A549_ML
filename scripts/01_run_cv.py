@@ -16,6 +16,27 @@ The three models:
     uv run python scripts/01_run_cv.py --task nr_vs_dn --models catboost \
         --tune-threshold --threshold-method max_f1 --run-prefix <date>
 
+Options added on 20 Nov 2026:
+
+    --subset gr_bound            only GR-bound enhancers (overlap with a peak of config.GR_PEAK_FILE); with
+                                 --task nr_vs_up this is GR-bound UP against GR-bound NR
+    --subset transcribed         only enhancers of the two classes with enough PRO-seq signal for a response to be
+                                 detectable: signal (config.PROSEQ_SIGNAL_COLUMN of the PRO-seq table) at least
+                                 the config.TRANSCRIBED_MIN_QUANTILE_OF_POSITIVE quantile of the positive class.
+                                 With --task nr_vs_dn this compares DN enhancers with NR enhancers that are
+                                 transcribed in the same range
+    --subset matched             every enhancer of the positive class with its config.MATCHED_NEGATIVES_PER_POSITIVE
+                                 nearest enhancers of the negative class in length and PRO-seq signal, so the two
+                                 classes have similar length and transcription level (stricter than 'transcribed',
+                                 which only removes weakly transcribed enhancers)
+    --feature-set pretreatment   without the features measured after dex (dex ChIP-seq and ATAC-seq tracks, GR
+                                 peaks around the enhancer); sequence and control features only
+    --no-grouped-importance      skip the grouped permutation importance
+
+The options add a tag to the run folder name (..__grbound, ..__transcribed, ..__matched, ..__pretreatment). The grouped permutation importance
+(groups of config.FEATURE_FAMILIES and correlation clusters, all members shuffled together) is computed on every
+held-out fold next to the single-feature importance.
+
 Note that the default of --models also fits a random forest, and that the threshold is tuned only with
 --tune-threshold.
 
@@ -37,6 +58,11 @@ from a549_enhancers.config import (
     VARIANCE_THRESHOLD,
     PERMUTATION_N_REPEATS,
     PERMUTATION_SCORING,
+    GROUPED_PERMUTATION_N_REPEATS,
+    GR_PEAK_FILE,
+    PROSEQ_SIGNAL_COLUMN,
+    TRANSCRIBED_MIN_QUANTILE_OF_POSITIVE,
+    MATCHED_NEGATIVES_PER_POSITIVE,
     THRESHOLD_INNER_CV_SPLITS,
     THRESHOLD_METHOD_DEFAULT,
     MIN_PRECISION_DEFAULT,
@@ -76,7 +102,13 @@ from a549_enhancers.evaluation import (
     make_prediction_table,
 )
 
-from a549_enhancers.permutation_importance import compute_permutation_importance_heldout
+from a549_enhancers.permutation_importance import (
+    compute_permutation_importance_heldout,
+    compute_grouped_permutation_importance_heldout,
+)
+from a549_enhancers.feature_groups import build_feature_groups, feature_layer
+from a549_enhancers.enhancers import proseq_signal
+from a549_enhancers.intervals import overlaps_any, parse_enhancer_ids, read_peaks
 
 from a549_enhancers.stability import (
     summarize_cv_metrics,
@@ -97,6 +129,27 @@ def parse_args():
     )
 
 
+
+    parser.add_argument(
+        "--subset",
+        choices=["all", "gr_bound", "transcribed", "matched"],
+        default="all",
+        help="Enhancers of the two classes to use: all, only the GR-bound ones, or only those with enough "
+             "PRO-seq signal for a response to be detectable.",
+    )
+
+    parser.add_argument(
+        "--feature-set",
+        choices=["all", "pretreatment"],
+        default="all",
+        help="all features, or without the features measured after dex.",
+    )
+
+    parser.add_argument(
+        "--no-grouped-importance",
+        action="store_true",
+        help="Do not compute the grouped permutation importance.",
+    )
 
     parser.add_argument(
         "--models",
@@ -216,6 +269,10 @@ def main():
     base_run_name = (
         f"{args.task}"
         f"__{threshold_tag}"
+        + ("__grbound" if args.subset == "gr_bound" else "")
+        + ("__transcribed" if args.subset == "transcribed" else "")
+        + ("__matched" if args.subset == "matched" else "")
+        + ("__pretreatment" if args.feature_set == "pretreatment" else "")
     )
 
     run_prefix = safe_filename(str(args.run_prefix).strip()) if args.run_prefix else ""
@@ -238,6 +295,7 @@ def main():
     print(f"Running: {run_name}")
     print(f"Output: {out_root}")
     print(f"Task: {args.task}")
+    print(f"Enhancers: {args.subset} | features: {args.feature_set}")
     print(f"Models: {args.models}")
     print(f"Threshold tuning: {args.tune_threshold}")
     print(f"Run prefix: {run_prefix if run_prefix else '(none)'}")
@@ -323,6 +381,75 @@ def main():
         labels=labels,
         task=args.task,
     )
+
+    # Optional: GR-bound enhancers only (overlap with a GR peak, as in scripts/08_annotate_gr_binding.py).
+    if args.subset == "gr_bound":
+        gr_bound = overlaps_any(parse_enhancer_ids(X_task.index), read_peaks(paths.ml_input(GR_PEAK_FILE)))
+        print(f"\nSubset gr_bound: {int(gr_bound.sum())} of {len(gr_bound)} enhancers overlap a peak of {GR_PEAK_FILE}")
+        print(pd.crosstab(y_task.to_numpy(), gr_bound, rownames=["class"], colnames=["GR-bound"]))
+        X_task, y_task = X_task.loc[gr_bound].copy(), y_task.loc[gr_bound].copy()
+
+    # Optional: enhancers transcribed in the range of the positive class (same rule for both classes).
+    if args.subset == "transcribed":
+        signal = proseq_signal(X_task.index, paths.PROSEQ_MA_TABLE, PROSEQ_SIGNAL_COLUMN)
+        if signal.isna().any():
+            print(f"{int(signal.isna().sum())} enhancers without PRO-seq signal are left out")
+        is_pos = (y_task == positive_label).to_numpy()
+        cutoff = float(signal[is_pos].quantile(TRANSCRIBED_MIN_QUANTILE_OF_POSITIVE))
+        keep = (signal >= cutoff).to_numpy()
+        print(f"\nSubset transcribed: {PROSEQ_SIGNAL_COLUMN} >= {cutoff:.3f} "
+              f"({TRANSCRIBED_MIN_QUANTILE_OF_POSITIVE:.0%} quantile of {positive_label}); "
+              f"{int(keep.sum())} of {len(keep)} enhancers kept")
+        print(pd.crosstab(y_task.to_numpy(), keep, rownames=["class"], colnames=["kept"]))
+        pd.DataFrame({"enhancer_id": X_task.index, "class": y_task.to_numpy(), PROSEQ_SIGNAL_COLUMN: signal.to_numpy(),
+                      "kept": keep, "cutoff": cutoff}).to_csv(dirs["data"] / "transcribed_subset.csv", index=False)
+        X_task, y_task = X_task.loc[keep].copy(), y_task.loc[keep].copy()
+
+    # Optional: positives with their nearest negatives in length and PRO-seq signal.
+    if args.subset == "matched":
+        from sklearn.neighbors import NearestNeighbors
+        signal = proseq_signal(X_task.index, paths.PROSEQ_MA_TABLE, PROSEQ_SIGNAL_COLUMN)
+        cov = pd.DataFrame({"log10_length": np.log10(pd.to_numeric(X_task["Enh_len"]).to_numpy()),
+                            PROSEQ_SIGNAL_COLUMN: signal.to_numpy()}, index=X_task.index)
+        usable = cov.notna().all(axis=1).to_numpy()
+        Z = ((cov - cov[usable].mean()) / cov[usable].std(ddof=0)).to_numpy()
+        is_pos = (y_task == positive_label).to_numpy()
+        neg_rows = np.flatnonzero(~is_pos & usable)
+        pos_rows = np.flatnonzero(is_pos & usable)
+        k = min(MATCHED_NEGATIVES_PER_POSITIVE, len(neg_rows))
+        _, idx = NearestNeighbors(n_neighbors=k).fit(Z[neg_rows]).kneighbors(Z[pos_rows])
+        keep = np.zeros(len(X_task), dtype=bool)
+        keep[pos_rows] = True
+        keep[neg_rows[np.unique(idx)]] = True
+        print(f"\nSubset matched: {len(pos_rows)} {positive_label} enhancers and their {k} nearest {negative_label} "
+              f"enhancers in length and {PROSEQ_SIGNAL_COLUMN}: {int(keep.sum())} enhancers kept")
+        balance = cov.assign(group=np.where(is_pos, positive_label, np.where(keep, f"matched {negative_label}",
+                                                                              f"other {negative_label}")))
+        balance["length"] = 10 ** balance.pop("log10_length")
+        print(balance.groupby("group").agg(n=("length", "size"), length_median=("length", "median"),
+                                           signal_median=(PROSEQ_SIGNAL_COLUMN, "median")).round(2))
+        pd.DataFrame({"enhancer_id": X_task.index, "class": y_task.to_numpy(), "length": balance["length"].to_numpy(),
+                      PROSEQ_SIGNAL_COLUMN: signal.to_numpy(), "kept": keep}).to_csv(
+            dirs["data"] / "matched_subset.csv", index=False)
+        X_task, y_task = X_task.loc[keep].copy(), y_task.loc[keep].copy()
+
+    # Optional: without the features measured after dex.
+    if args.feature_set == "pretreatment":
+        dex_cols = [c for c in X_task.columns if feature_layer(c) == "dex"]
+        X_task = X_task.drop(columns=dex_cols)
+        X_features = X_features.drop(columns=dex_cols)
+        categorical_cols = [c for c in categorical_cols if c in X_task.columns]
+        pd.DataFrame({"dropped_dex_feature": dex_cols}).to_csv(dirs["data"] / "dropped_dex_features.csv", index=False)
+        print(f"\nFeature set pretreatment: {len(dex_cols)} dex features dropped, {X_task.shape[1]} features left")
+
+    # Predefined feature groups for the grouped permutation importance: from all enhancers, without labels.
+    feature_groups = {}
+    if not args.no_grouped_importance:
+        groups_table = build_feature_groups(X_features[X_task.columns])
+        groups_table.to_csv(dirs["data"] / "feature_groups.csv", index=False)
+        feature_groups = {g: t["feature"].tolist() for g, t in groups_table.groupby("group", sort=False)}
+        print(f"\nFeature groups: {len(feature_groups)} "
+              f"({groups_table.drop_duplicates('group').group_type.value_counts().to_dict()})")
 
     X_task.to_csv(dirs["data"] / f"X_{args.task}.csv")
     y_task.to_csv(dirs["data"] / f"y_{args.task}.csv")
@@ -412,6 +539,7 @@ def main():
     all_predictions = []
     all_metrics = []
     all_importances = []
+    all_group_importances = []
     all_threshold_tables = []
 
     for split_id, (train_idx, test_idx) in enumerate(cv.split(X_task, y_task)):
@@ -687,6 +815,30 @@ def main():
 
             all_importances.append(imp)
 
+            # =========================
+            # Grouped permutation importance (held-out fold)
+            # =========================
+            if feature_groups:
+                gimp = compute_grouped_permutation_importance_heldout(
+                    model=model,
+                    X_test=X_te,
+                    y_test=y_test,
+                    positive_label=positive_label,
+                    groups=feature_groups,
+                    n_repeats=GROUPED_PERMUTATION_N_REPEATS,
+                    random_state=fold_seed,
+                )
+                gimp["task"] = args.task
+                gimp["model"] = model_name
+                gimp["repeat"] = repeat
+                gimp["fold"] = fold
+                gimp.to_csv(
+                    dirs["cv_importance"]
+                    / f"repeat_{repeat:02d}_fold_{fold:02d}_{model_name}_grouped_permutation_importance.csv",
+                    index=False,
+                )
+                all_group_importances.append(gimp)
+
     # =========================
     # 7. Aggregate CV outputs
     # =========================
@@ -732,6 +884,36 @@ def main():
         dirs["summaries"] / "feature_importance_stability_summary.csv",
         index=False,
     )
+
+    # Grouped importance: per group, next to the single-feature importance of its members.
+    if all_group_importances:
+        all_group_df = pd.concat(all_group_importances, ignore_index=True)
+        all_group_df.to_csv(dirs["summaries"] / "all_cv_grouped_permutation_importance.csv", index=False)
+        group_summary = (
+            all_group_df.groupby(["task", "model", "group"], sort=False)
+            .agg(
+                n_features=("n_features", "max"),
+                n_folds=("importance_mean", "count"),
+                mean_importance=("importance_mean", "mean"),
+                median_importance=("importance_mean", "median"),
+                sd_importance=("importance_mean", "std"),
+                fraction_positive_importance=("importance_mean", lambda x: np.mean(np.asarray(x) > 0)),
+            )
+            .reset_index()
+        )
+        single = importance_summary.set_index(["model", "feature"])["mean_importance"]
+        members = groups_table.groupby("group")["feature"].apply(list)
+        best, total = [], []
+        for _, r in group_summary.iterrows():
+            vals = single.reindex([(r["model"], f) for f in members[r["group"]]]).dropna()
+            best.append(vals.max() if len(vals) else np.nan)
+            total.append(vals.clip(lower=0).sum() if len(vals) else np.nan)
+        group_summary["largest_single_member_importance"] = best
+        group_summary["sum_of_positive_member_importances"] = total
+        group_summary["group_type"] = group_summary["group"].map(
+            groups_table.drop_duplicates("group").set_index("group")["group_type"])
+        group_summary = group_summary.sort_values(["model", "mean_importance"], ascending=[True, False])
+        group_summary.to_csv(dirs["summaries"] / "grouped_importance_summary.csv", index=False)
 
     # =========================
     # 9. Threshold/performance summary
@@ -795,6 +977,9 @@ def main():
         "run_name": run_name,
         "base_run_name": base_run_name,
         "task": args.task,
+        "subset": args.subset,
+        "feature_set": args.feature_set,
+        "n_feature_groups": len(feature_groups),
         "models": args.models,
         "negative_label": negative_label,
         "positive_label": positive_label,

@@ -3,6 +3,14 @@
 Run from the repository root, after `uv sync` and after filling in `paths.toml`. Python steps:
 `uv run python <script>`; R steps: `Rscript <script>`.
 
+## Inputs built before the models
+
+| Step | Script | Reads | Writes (copy to `ml_inputs`) |
+|---|---|---|---|
+| a | `scripts/18_motif_matrices_from_homer.py` | enhancer BED, HOMER `annotatePeaks.pl` output | motif count and best-score tables |
+| b | `scripts/21_motif_groups.py` | the two motif tables | `matrix_motif_groups.tsv` (motif groups, GRE score) |
+| c | `scripts/19_neighbourhood_features.py` | prematrix coordinates, GR peak file | `matrix_neighbourhood.tsv` |
+
 ## Models
 
 | Step | Script | Reads | Writes |
@@ -12,6 +20,25 @@ Run from the repository root, after `uv sync` and after filling in `paths.toml`.
 | 3 | `scripts/03_lime_rules_final_models.py --n-jobs 6` | final models, input tables | `<ml_outputs>/<date>__lime_final_models/` |
 
 After step 1, write the three run-folder names into `[runs]` of `paths.toml`.
+
+`scripts/00_rerun_models.py --tasks <task ...>` runs steps 1 and 2 (and 3 with `--lime`) into dated folders after
+checking the settings. Step 1 also writes the grouped permutation importance
+(`<run>/summaries/grouped_importance_summary.csv`; groups in `<run>/data/feature_groups.csv`). Two further
+cross-validation runs, without final model: `--tasks grbound_nr_vs_up grbound_nr_vs_up_pretreatment`
+(GR-bound UP against GR-bound NR enhancers, with all features and without the features measured after dex).
+
+## Class analyses (descriptive; after the models)
+
+| Step | Script | Question | Writes (`<analysis>/class_analyses/`) |
+|---|---|---|---|
+| 22 | `scripts/22_dn_detection_power.py` | does NR versus DN separate the classes at similar length and control PRO-seq signal? | `nr_vs_dn_detection_*.tsv` |
+| 23 | `scripts/23_graded_response.py` | do NR enhancers with a high held-out score have sub-threshold fold changes? | `graded_response_*.tsv`, `.pdf` |
+| 24 | `scripts/24_neighbour_coresponse.py` | do neighbouring enhancers respond together? (no model needed) | `neighbour_*.tsv` |
+| 25 | `scripts/25_timecourse_by_class.py` | ChIP-seq signal of the classes over the dex time course (no model needed) | `timecourse_*.tsv`, `.pdf` |
+| 20 | `scripts/20_starr_seq_overlap.py` | overlap with dex-responsive STARR-seq regions (Johnson et al. 2018) | `starr_by_class.tsv` |
+
+Steps 22 and 23 read the run folders named in `[runs]` of `paths.toml`; step 22 also reads the PRO-seq table
+(`[layout] proseq_ma_table`).
 
 ## Validation
 

@@ -87,7 +87,7 @@ def select_stable_features(
     It is used only for final interpretation models.
 
     Primary rule:
-        fraction_positive_importance >= 0.60
+        fraction_positive_importance >= STABLE_MIN_FRACTION_POSITIVE_IMPORTANCE (config.py; 0.80)
         median_importance > 0
 
     Fallback:

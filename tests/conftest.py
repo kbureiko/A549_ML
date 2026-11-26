@@ -18,6 +18,9 @@ SIGNAL_COLUMNS = [
 ]
 DROPPED_DEX_COLUMN = "EP300_dex_100_2 hour_ENCFFGGGGGG"      # dex, but not 100 nM for 1 h
 EXCLUDED_COLUMN = "CTCF_ENCFF254DAA"                          # listed in config.EXCLUDE_COLUMNS
+AVERAGED_SOURCES = ["CREB1_eth_0.02_1 hour_ENCFF545ERO", "CREB1_eth_0.02_1 hour_ENCFF609MCU"]   # config.AVERAGED_TRACKS
+AVERAGED_COLUMN = "CREB1_eth_0.02_1 hour_ENCFF545ERO_ENCFF609MCU"
+GROUP_COLUMNS = ["GRE(NR),IR3/A549-GR-ChIP-Seq/Homer group (5)", "Jun-AP1(bZIP)/K562-cJun-ChIP-Seq/Homer group (10)"]
 MOTIF_COLUMNS = ["GRE(NR),IR3/A549-GR-ChIP-Seq/Homer", "AP-1(bZIP)/ThioMac-PU.1-ChIP-Seq/Homer"]
 
 
@@ -29,9 +32,11 @@ def make_inputs(folder: Path, n: int = N_ENHANCERS, seed: int = 0) -> pd.DataFra
                         "end": start + rng.integers(200, 1500, n)})
     response = rng.choice([1, -1, 0], n, p=[0.25, 0.2, 0.55])
     pre[config.LOG2FC_COL] = response * rng.uniform(0.7, 3.0, n) + (response == 0) * rng.normal(0, 0.2, n)
+    pre["ctrl vs. dex adj. p-value"] = np.where(response != 0, rng.uniform(1e-6, 0.04, n), rng.uniform(0.06, 1.0, n))
+    pre["ctrl vs. dex p-value"] = pre["ctrl vs. dex adj. p-value"] / 5
+    # the label column in use (config.PVAL_COL) separates the classes at 0.05 in both cases
     pre[config.PVAL_COL] = np.where(response != 0, rng.uniform(1e-6, 0.04, n), rng.uniform(0.06, 1.0, n))
-    pre["ctrl vs. dex p-value"] = pre[config.PVAL_COL] / 5
-    for i, col in enumerate(SIGNAL_COLUMNS + [DROPPED_DEX_COLUMN, EXCLUDED_COLUMN]):
+    for i, col in enumerate(SIGNAL_COLUMNS + [DROPPED_DEX_COLUMN, EXCLUDED_COLUMN] + AVERAGED_SOURCES):
         pre[col] = rng.gamma(2.0, 8.0, n) + 12.0 * response * (i == 0)       # first track carries class signal
     pre.to_csv(folder / config.PREMATRIX_FILE, sep="\t", index=False)
 
@@ -44,6 +49,15 @@ def make_inputs(folder: Path, n: int = N_ENHANCERS, seed: int = 0) -> pd.DataFra
     pd.DataFrame({"Distance to TSS": rng.integers(-200_000, 200_000, n)}).to_csv(
         folder / config.ANNOTATION_ADDITIONAL_FILE, sep="\t")
     pd.DataFrame({"5_pct_gc": rng.uniform(0.3, 0.7, n)}).to_csv(folder / config.GC_FILE, sep=";")
+    # tables of scripts 19 and 21: matched on enhancer_id, so the rows are written in a different order
+    ids = pre["chr"] + "_" + pre["start"].astype(str) + "_" + pre["end"].astype(str)
+    order = rng.permutation(n)
+    groups = pd.DataFrame({"enhancer_id": ids, **{f"motif::{c}": rng.choice([0, 0, 1], n) for c in GROUP_COLUMNS},
+                           config.GRE_SCORE_SOURCE_COLUMN: rng.normal(4.0, 3.0, n)})
+    groups.iloc[order].to_csv(folder / config.MOTIF_GROUPS_FILE, sep="\t")
+    nbr = pd.DataFrame({"enhancer_id": ids, **{c: rng.integers(0, 50_000, n).astype(float)
+                                               for c in config.NEIGHBOURHOOD_FEATURES}})
+    nbr.iloc[order].to_csv(folder / config.NEIGHBOURHOOD_FILE, sep="\t")
     return pre
 
 

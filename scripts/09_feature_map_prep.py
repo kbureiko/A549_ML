@@ -23,6 +23,7 @@ from scipy.stats import norm, spearmanr
 from sklearn.cluster import KMeans
 from sklearn.metrics import adjusted_rand_score, silhouette_score
 
+from a549_enhancers import paths
 from a549_enhancers.paths import PROJECT, ML, FEATURE_MAP   # local folders, set in paths.toml
 FM = ML / "feature_matrix_all_classes_GRannotated.csv"
 OUT = FEATURE_MAP; OUT.mkdir(parents=True, exist_ok=True)
@@ -30,6 +31,9 @@ TASKS = ("nr_vs_up", "up_vs_dn", "nr_vs_dn")
 TOP_N = 30
 INCLUDE_MOTIFS = False     # binary motif calls add two-level jumps to distances; the map is meant to show chromatin
 INCLUDE_LENGTH = False     # Enh_len tracks activity / detectability (see length analysis); keep out of the layout
+INCLUDE_NEIGHBOURHOOD = False   # nbr_* (enhancers and GR peaks around the enhancer) and the GRE score describe the
+                                # surroundings and the sequence, not the chromatin at the enhancer; the counts are
+                                # mostly 0 and would add jumps to the distances, like the motif indicators
 MAX_RHO = 0.90
 VAR_KEEP = 0.90            # PCs kept = enough for this share of variance (capped at MAX_PC)
 MAX_PC = 30
@@ -46,12 +50,15 @@ def find(pattern, root=PROJECT):
 # ----------------------------------------------------------------------------- 1 feature set
 imp = {}
 for task in TASKS:
-    runs = sorted(d for d in ML.glob(f"*__{task}__*") if (d / "summaries" / "feature_importance_stability_summary.csv").exists())
-    if not runs:
-        raise FileNotFoundError(f"no run with summaries/feature_importance_stability_summary.csv for {task} in {ML}")
-    s = pd.read_csv(runs[-1] / "summaries" / "feature_importance_stability_summary.csv")
+    # the run named in [runs] of paths.toml; never the newest folder, because the subset runs
+    # (..__grbound, ..__matched, ..__transcribed) carry the same task name
+    run = paths.run_dir(task)
+    summary = run / "summaries" / "feature_importance_stability_summary.csv"
+    if not summary.exists():
+        raise FileNotFoundError(f"{summary} not found; check [runs] in paths.toml")
+    s = pd.read_csv(summary)
     imp[task] = s.sort_values("mean_importance", ascending=False).reset_index(drop=True)
-    print(f"{task}: {runs[-1].name}  ({len(s)} features)")
+    print(f"{task}: {run.name}  ({len(s)} features)")
 
 FMX = pd.read_csv(FM, low_memory=False)
 FMX["GR_bound"] = FMX.GR_bound.astype(str).str.lower().eq("true")
@@ -60,8 +67,10 @@ FMX["GR_bound"] = FMX.GR_bound.astype(str).str.lower().eq("true")
 def layer(f):
     if f.startswith("motif_binary::"):
         return "motif"
-    if f in ("annotation", "Distance to TSS", "Enh_len", "gc"):
+    if f in ("annotation", "Distance to TSS", "Enh_len", "gc", "GRE_score"):
         return "genomic"
+    if f.startswith("nbr_"):
+        return "neighbourhood"
     if "_dex_" in f or f == "ATAC_dex_1h":
         return "dex"
     return "baseline"
@@ -79,6 +88,9 @@ F["in_matrix"] = F.feature.isin(FMX.columns)
 F["numeric"] = F.feature.map(lambda f: f in FMX.columns and pd.api.types.is_numeric_dtype(FMX[f]))
 keep = F.numeric & ~((F.layer == "motif") & (not INCLUDE_MOTIFS)) & ~((F.feature == "Enh_len") & (not INCLUDE_LENGTH))
 keep &= ~F.feature.isin(["Distance to TSS", "gc"])          # genomic position / composition, not chromatin
+if not INCLUDE_NEIGHBOURHOOD:
+    keep &= ~(F.feature.str.startswith("nbr_") | F.feature.eq("GRE_score"))
+print("left out of the layout:", F.loc[F.numeric & ~keep, "feature"].tolist())
 F["used_before_dedup"] = keep
 print(f"\nunion of top-{TOP_N}: {len(F)} features; by layer {F.layer.value_counts().to_dict()}; "
       f"in models: {F.n_models.value_counts().sort_index().to_dict()}")
@@ -167,8 +179,8 @@ if old_path is not None:
     print(f"\nexisting NR states: {old_path}")
 else:                                                   # recipe of the earlier NR states
     col = lambda p, t: [c for c in FMX.columns if c.startswith(p) and t in c][0]
-    SF = [col("H3K27ac_", "eth"), col("H3K4me1_", "eth"), col("H3K4me3_", "eth"), col("POLR2A_", "eth"),
-          "EP300_ENCFF842XYY", "JUN_ENCFF957TUK", "CTCF_ENCFF083AEY", "RAD21_ENCFF778YHU", col("H2AFZ_", "eth"),
+    SF = ["H3K27ac_ENCFF054OOT", "H3K4me1_ENCFF580SCK", "H3K4me3_ENCFF529CES", col("POLR2A_", "eth"),
+          "EP300_ENCFF376VNJ", "JUN_ENCFF957TUK", "CTCF_ENCFF083AEY", "RAD21_ENCFF778YHU", col("H2AFZ_", "eth"),
           col("H3K27me3_", "eth"), col("NR3C1_", "dex"), col("FOXA1_", "dex"), "ATAC_ctrl"]
     Xa = np.log1p(FMX[SF].clip(lower=0)); Za = (Xa - Xa[nr].mean()) / Xa[nr].std()
     OLD = pd.Series(KMeans(6, n_init=20, random_state=0).fit(Za[nr]).labels_.astype(str),
@@ -194,8 +206,8 @@ def km_stats(P, label):
 
 
 # (i) A2 state features with the new transform -> effect of the transform alone
-A2_FEATS = [c for c in FMX.columns if any(c.startswith(p) for p in ("H3K27ac_", "H3K4me1_", "H3K4me3_", "POLR2A_",
-            "H2AFZ_", "H3K27me3_")) and "_eth_" in c] + ["EP300_ENCFF842XYY", "JUN_ENCFF957TUK", "CTCF_ENCFF083AEY",
+A2_FEATS = [c for c in FMX.columns if any(c.startswith(p) for p in ("POLR2A_", "H2AFZ_", "H3K27me3_")) and "_eth_" in c] + [
+            "H3K27ac_ENCFF054OOT", "H3K4me1_ENCFF580SCK", "H3K4me3_ENCFF529CES", "EP300_ENCFF376VNJ", "JUN_ENCFF957TUK", "CTCF_ENCFF083AEY",
             "RAD21_ENCFF778YHU", "ATAC_ctrl"] + [c for c in FMX.columns if c.startswith(("NR3C1_", "FOXA1_")) and "_dex_" in c]
 PA, eva, _ = pca(rank_normal(FMX.loc[nr, A2_FEATS].astype(float)))
 na = int(np.searchsorted(np.cumsum(eva), VAR_KEEP) + 1)

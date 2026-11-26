@@ -1,7 +1,7 @@
 """Final model of one task, refitted on all enhancers of its two classes, for interpretation (LIME).
 
 Uses the features that were stable in the finished cross-validation run (positive held-out permutation
-importance in at least 60 % of the folds and a positive median). Performance is never taken from these
+importance in at least 80 % of the held-out evaluations and a positive median; config.py). Performance is never taken from these
 models: all reported metrics come from the held-out folds of scripts/01_run_cv.py.
 
 The three models:

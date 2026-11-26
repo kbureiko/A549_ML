@@ -26,7 +26,7 @@ from a549_enhancers.paths import PROJECT, ML, FIGURES, FEATURE_MAP   # local fol
 FM = ML / "feature_matrix_all_classes_GRannotated.csv"
 PREP = FEATURE_MAP
 FINAL = FIGURES; FINAL.mkdir(parents=True, exist_ok=True)
-EMB_FILE, LAYOUT = "umap_grid_embeddings_supervised.npz", "nn30_md0.1_cosine_sup0.5"
+EMB_FILE, LAYOUT = "umap_grid_embeddings_supervised.npz", "nn50_md0.1_euclidean_sup0.5"
 N_SMOOTH, N_BINS, CHANGE_LIM, MIN_RHO, ALPHA = 25, 20, 30, 0.6, 0.6
 NCOL, PANEL_W, PANEL_H = 3, 2.2, 1.65          # panels per row and panel size (inches)
 EQUAL_ASPECT = False
@@ -34,16 +34,36 @@ EQUAL_ASPECT = False
 # factor -> (control column, dex column); "name|tag" = first column starting with name_ and containing tag
 TRACKS = {"FOXA1": ("FOXA1|_eth_", "FOXA1|_dex_"), "GR": ("NR3C1|_eth_", "NR3C1|_dex_"), "H3K79me2": ("H3K79me2|_eth_", "H3K79me2|_dex_"),
           "ATAC": ("ATAC_ctrl", "ATAC_dex_1h"), "Pol II": ("POLR2A|_eth_", "POLR2A|_dex_"),
-          "H3K27ac": ("H3K27ac|_eth_", "H3K27ac|_dex_"), "H3K27me3": ("H3K27me3|_eth_", "H3K27me3|_dex_"),
-          "H3K4me1": ("H3K4me1|_eth_", "H3K4me1|_dex_"), "H3K4me3": ("H3K4me3|_eth_", "H3K4me3|_dex_"),
+          "H3K27ac": ("H3K27ac_ENCFF054OOT", "H3K27ac|_dex_"), "H3K27me3": ("H3K27me3|_eth_", "H3K27me3|_dex_"),
+          "H3K4me1": ("H3K4me1_ENCFF580SCK", "H3K4me1|_dex_"), "H3K4me3": ("H3K4me3_ENCFF529CES", "H3K4me3|_dex_"),
           "CTCF": ("CTCF_ENCFF083AEY", "CTCF|_dex_"), "H2A.Z": ("H2AFZ|_eth_", "H2AFZ|_dex_"),
-          "FOSL2": ("FOSL2|_eth_", "FOSL2|_dex_"), "EP300": ("EP300_ENCFF842XYY", "EP300|_dex_"),
+          "FOSL2": ("FOSL2_ENCFF129REO", "FOSL2|_dex_"), "EP300": ("EP300_ENCFF376VNJ", "EP300|_dex_"),
           "cJUN": ("JUN_ENCFF957TUK", "JUN|_dex_"), "BCL3": ("BCL3_ENCFF856OZJ", "BCL3|_dex_"),
           "SMC3": ("SMC3_ENCFF029NYA", "SMC3|_dex_"), "RAD21": ("RAD21_ENCFF778YHU", "RAD21|_dex_")}
 SINGLE = {"PHF8": "PHF8_ENCFF690AJW", "TCF12": "TCF12|_eth_", "GATA3": "GATA3_ENCFF485KDU", "TEAD4": "TEAD4_ENCFF186WSI"}
-MOTIFS = {"GRE motif": ["motif_binary::GRE(NR),IR3/A549-GR-ChIP-Seq(GSE32465)/Homer",
-                        "motif_binary::GRE(NR),IR3/RAW264.7-GRE-ChIP-Seq(Unpublished)/Homer"],
-          "AP-1 motif": ["motif_binary::AP-1(bZIP)/ThioMac-PU.1-ChIP-Seq(GSE21512)/Homer"]}
+# Motif indicators, matched by the start of the column name (first prefix found in the matrix is used). With the
+# motif groups of the current matrix: "GRE(NR),IR3 group (5)" = GRE motif of the A549 GR ChIP-seq (representative of
+# GRE / ARE / PGR / PR motifs); "Jun-AP1(bZIP) group (10)" = Jun-AP1 motif (representative of ten AP-1 family motifs).
+# The earlier matrix (single motifs) is matched by the second prefix.
+MOTIF_PREFIXES = {"GRE motif": ["motif_binary::GRE(NR),IR3 group", "motif_binary::GRE(NR),IR3/"],
+                  "AP-1 motif": ["motif_binary::Jun-AP1(bZIP) group", "motif_binary::AP-1(bZIP)/"]}
+
+
+def motif_columns(columns):
+    """name -> columns of the feature matrix, from MOTIF_PREFIXES; stops if a motif is not in the matrix"""
+    found = {}
+    for name, prefixes in MOTIF_PREFIXES.items():
+        for p in prefixes:
+            hit = [c for c in columns if c.startswith(p)]
+            if hit:
+                found[name] = hit
+                break
+        else:
+            raise KeyError(f"{name}: no column starting with {prefixes} in the feature matrix")
+    return found
+
+
+MOTIFS = {}       # filled from the feature matrix after it is read: MOTIFS.update(motif_columns(D.columns))
 
 # panel specs: ("motif", name) | ("ctrl"/"dex", factor, cmap) | ("chg", factor) | ("single", factor, label, cmap)
 M = lambda n: [("motif", n)]
@@ -61,6 +81,7 @@ PCS = pd.read_csv(PREP / "umap_pcs.tsv", sep="\t")
 E = np.load(PREP / EMB_FILE)[LAYOUT]
 P = PCS.filter(regex=r"^PC\d+$").to_numpy()
 D = pd.read_csv(FM, low_memory=False).set_index("enhancer_id").loc[PCS.enhancer_id].reset_index().copy()
+MOTIFS.update(motif_columns(D.columns))
 nr = D["class"].eq("NR").values
 
 

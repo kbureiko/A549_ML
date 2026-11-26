@@ -30,26 +30,47 @@ from a549_enhancers.paths import PROJECT, ML, FIGURES, PROSEQ_MA_TABLE, FEATURE_
 FM = ML / "feature_matrix_all_classes_GRannotated.csv"
 TOPICS_FILE = NR_TOPICS / "MS_nr_topics_usage.tsv"
 PREP = FEATURE_MAP                                           # umap_pcs.tsv and the embeddings of the map
-EMB_FILE, LAYOUT = "umap_grid_embeddings_supervised.npz", "nn30_md0.1_cosine_sup0.5"
+EMB_FILE, LAYOUT = "umap_grid_embeddings_supervised.npz", "nn50_md0.1_euclidean_sup0.5"
 PROSEQ = PROSEQ_MA_TABLE                                      # per-enhancer PRO-seq log2FC (optional)
 FINAL = FIGURES; FINAL.mkdir(parents=True, exist_ok=True)
 N_BINS = 20
 N_NB, MIN_NB = 25, 5                # neighbourhood size (as in the delta panels); "close to UP / DN" = >= MIN_NB of N_NB
 TRACKS = {"GR": ("NR3C1|_eth_", "NR3C1|_dex_"), "ATAC": ("ATAC_ctrl", "ATAC_dex_1h"),
-          "Pol II": ("POLR2A|_eth_", "POLR2A|_dex_"), "H3K27ac": ("H3K27ac|_eth_", "H3K27ac|_dex_"),
-          "H3K4me1": ("H3K4me1|_eth_", "H3K4me1|_dex_"), "H3K4me3": ("H3K4me3|_eth_", "H3K4me3|_dex_"),
-          "H3K79me2": ("H3K79me2|_eth_", "H3K79me2|_dex_"), "FOSL2": ("FOSL2|_eth_", "FOSL2|_dex_"),
-          "EP300": ("EP300_ENCFF842XYY", "EP300|_dex_"), "cJUN": ("JUN_ENCFF957TUK", "JUN|_dex_"),
+          "Pol II": ("POLR2A|_eth_", "POLR2A|_dex_"), "H3K27ac": ("H3K27ac_ENCFF054OOT", "H3K27ac|_dex_"),
+          "H3K4me1": ("H3K4me1_ENCFF580SCK", "H3K4me1|_dex_"), "H3K4me3": ("H3K4me3_ENCFF529CES", "H3K4me3|_dex_"),
+          "H3K79me2": ("H3K79me2|_eth_", "H3K79me2|_dex_"), "FOSL2": ("FOSL2_ENCFF129REO", "FOSL2|_dex_"),
+          "EP300": ("EP300_ENCFF376VNJ", "EP300|_dex_"), "cJUN": ("JUN_ENCFF957TUK", "JUN|_dex_"),
           "BCL3": ("BCL3_ENCFF856OZJ", "BCL3|_dex_"), "SMC3": ("SMC3_ENCFF029NYA", "SMC3|_dex_"),
           "RAD21": ("RAD21_ENCFF778YHU", "RAD21|_dex_"), "CTCF": ("CTCF_ENCFF083AEY", "CTCF|_dex_"),
           "FOXA1": ("FOXA1|_eth_", "FOXA1|_dex_"), "H2A.Z": ("H2AFZ|_eth_", "H2AFZ|_dex_")}
 SINGLE = {"PHF8": "PHF8_ENCFF690AJW", "TCF12": "TCF12|_eth_", "GATA3": "GATA3_ENCFF485KDU", "TEAD4": "TEAD4_ENCFF186WSI"}
-MOTIFS = {"GRE motif": ["motif_binary::GRE(NR),IR3/A549-GR-ChIP-Seq(GSE32465)/Homer",
-                        "motif_binary::GRE(NR),IR3/RAW264.7-GRE-ChIP-Seq(Unpublished)/Homer"],
-          "AP-1 motif": ["motif_binary::AP-1(bZIP)/ThioMac-PU.1-ChIP-Seq(GSE21512)/Homer"]}
+# Motif indicators, matched by the start of the column name (first prefix found in the matrix is used). With the
+# motif groups of the current matrix: "GRE(NR),IR3 group (5)" = GRE motif of the A549 GR ChIP-seq (representative of
+# GRE / ARE / PGR / PR motifs); "Jun-AP1(bZIP) group (10)" = Jun-AP1 motif (representative of ten AP-1 family motifs).
+# The earlier matrix (single motifs) is matched by the second prefix.
+MOTIF_PREFIXES = {"GRE motif": ["motif_binary::GRE(NR),IR3 group", "motif_binary::GRE(NR),IR3/"],
+                  "AP-1 motif": ["motif_binary::Jun-AP1(bZIP) group", "motif_binary::AP-1(bZIP)/"]}
+
+
+def motif_columns(columns):
+    """name -> columns of the feature matrix, from MOTIF_PREFIXES; stops if a motif is not in the matrix"""
+    found = {}
+    for name, prefixes in MOTIF_PREFIXES.items():
+        for p in prefixes:
+            hit = [c for c in columns if c.startswith(p)]
+            if hit:
+                found[name] = hit
+                break
+        else:
+            raise KeyError(f"{name}: no column starting with {prefixes} in the feature matrix")
+    return found
+
+
+MOTIFS = {}       # filled from the feature matrix after it is read: MOTIFS.update(motif_columns(D.columns))
 KEY = ["ATAC", "Pol II", "H3K27ac", "EP300", "cJUN", "BCL3"]   # control / dex percentiles reported per NR subset
 
 D = pd.read_csv(FM, low_memory=False).set_index("enhancer_id")
+MOTIFS.update(motif_columns(D.columns))
 cls = D["class"]; nr = cls.eq("NR").to_numpy()
 grb = D.GR_bound.astype(str).str.lower().eq("true")
 grp = pd.Series(np.where(grb, cls + " GR+", cls + " GR-"), index=D.index)

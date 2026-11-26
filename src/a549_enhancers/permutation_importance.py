@@ -75,3 +75,51 @@ def compute_permutation_importance_heldout(
     imp = imp.sort_values("importance_mean", ascending=False)
 
     return imp
+
+
+def compute_grouped_permutation_importance_heldout(
+    model,
+    X_test: pd.DataFrame,
+    y_test: pd.Series,
+    positive_label: str,
+    groups: dict,
+    n_repeats: int,
+    random_state: int,
+) -> pd.DataFrame:
+    """
+    Permutation importance of feature groups on the held-out fold: decrease in average precision when all
+    features of a group are shuffled together. One row order is drawn per repeat and applied to every member, so
+    the relations inside the group are kept and only the link to the other features and to the class is broken.
+
+    groups: {group name: [feature names]}; members that are not columns of X_test (for example constant
+    features removed in this fold) are ignored, and groups left with fewer than two members are skipped.
+    """
+    y_bin = (pd.Series(list(y_test)) == positive_label).astype(int).to_numpy()
+
+    def score(X):
+        return average_precision_score(y_bin, get_positive_class_proba(model, X, positive_label))
+
+    baseline = score(X_test)
+    rng = np.random.default_rng(random_state)
+    rows = []
+    for name, members in groups.items():
+        cols = [c for c in members if c in X_test.columns]
+        if len(cols) < 2:
+            continue
+        drops = []
+        for _ in range(n_repeats):
+            order = rng.permutation(len(X_test))
+            X_perm = X_test.copy()
+            shuffled = X_test[cols].iloc[order]
+            shuffled.index = X_test.index
+            X_perm[cols] = shuffled
+            drops.append(baseline - score(X_perm))
+        rows.append({
+            "group": name,
+            "n_features": len(cols),
+            "importance_mean": float(np.mean(drops)),
+            "importance_sd": float(np.std(drops)),
+            "baseline_average_precision": float(baseline),
+        })
+    return pd.DataFrame(rows, columns=["group", "n_features", "importance_mean", "importance_sd",
+                                       "baseline_average_precision"])

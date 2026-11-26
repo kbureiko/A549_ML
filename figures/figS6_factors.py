@@ -10,8 +10,6 @@
 #   3  dex-associated change per enhancer: level-adjusted rank change = dex rank minus the dex rank expected for
 #      the same control rank among NR enhancers (20 bins) - removes the scale difference between experiments,
 #      its signal-level dependence and regression to the mean; numbers = median (rank points)
-#   CAVEAT_RHO: factors whose dex track agrees poorly with the control track (FOXA1 rho ~0.05) are shown with a note;
-#      their dex values and change should not be interpreted as a change in occupancy. UNRELIABLE_DEX hides them.
 #   4  enhancers with high signal (top quartile of all 8,270 enhancers in that condition) per class, and
 #      enhancers carrying the factor's motif family (HOMER presence call), % with 95 % Wilson CI
 #   p-values under the panels: UP vs NR and DN vs NR, two-sided Mann-Whitney (Wilcoxon rank-sum) test for
@@ -45,13 +43,14 @@ SORTED_BEDS = {"NR": "NR_ctrlPlusDex_sorted.bed", "UP": "UP_sorted_by_dex.bed", 
 BEDS = {g: (HEATMAPS / f if (HEATMAPS / f).exists() else PROSEQ_MATRICES / f) for g, f in SORTED_BEDS.items()}
 FACTORS = [  # (label, control column, dex column, motif regex on the HOMER motif name, matrix file)
     ("GR", "NR3C1_eth_0.02_1 hour_ENCFF914PNO", "NR3C1_dex_100_1 hour_ENCFF090XQU", r"^GRE\(", HEATMAPS / "matrix_sorted_GR.tab.gz"),
-    ("EP300", "EP300_ENCFF842XYY", "EP300_dex_100_1 hour_ENCFF876TGI", None, HEATMAPS / "matrix_sorted_EP300.tab.gz"),
+    ("EP300", "EP300_ENCFF376VNJ", "EP300_dex_100_1 hour_ENCFF876TGI", None, HEATMAPS / "matrix_sorted_EP300.tab.gz"),
     ("FOXA1", "FOXA1_eth_0.02_1 hour_ENCFF640SEZ", "FOXA1_dex_100_1 hour_ENCFF095IRQ", r"FOXA1|Foxa", HEATMAPS / "matrix_sorted_FOXA1.tab.gz"),
     ("TEAD4", "TEAD4_ENCFF186WSI", None, r"^TEAD", HEATMAPS / "matrix_sorted_TEAD4.tab.gz"),
 ]
 HIGH_Q = 0.75              # "high signal" = above this quantile of all enhancers (per condition)
-UNRELIABLE_DEX = []          # factors whose dex track is left out entirely (e.g. ["FOXA1"]); kept by default
-CAVEAT_RHO = 0.3             # dex panels of factors with control-dex Spearman below this carry a caveat note
+UNRELIABLE_DEX = []          # factors whose dex track is left out entirely; none
+NOTES_ON_PANELS = False      # no notes are printed on the dex panels
+CAVEAT_RHO = 0.3             # used only if NOTES_ON_PANELS is True
 N_BINS = 20                  # baseline-rank bins for the level-adjusted change
 CLS = {"UP": "#D1495B", "DN": "#3B6FB6", "NR": "#5DAA82"}
 ORDER = ["NR", "UP", "DN"]
@@ -160,7 +159,7 @@ for lab, cc, cd, mre, mf in FACTORS:
                                                                     [int(b[nr].sum()), int((~b[nr]).sum())]])[1]
         r = dict(factor=lab, cls=g, n=n, median_rank_control=np.median(x_c[m]),
                  median_rank_dex=np.median(x_d[m]) if cd else np.nan,
-                 median_rank_change=np.median(arc[m]) if cd else np.nan, control_dex_spearman=rho,
+                 median_rank_change=np.median(arc[m]) if cd else np.nan,
                  frac_high_control=(x_c[m] > thr_c).mean(), frac_high_dex=(x_d[m] > thr_d).mean() if cd else np.nan,
                  frac_motif=has_motif[m].mean() if has_motif is not None else np.nan, n_motifs_in_family=len(mot),
                  p_vs_NR_control=mw(x_c), p_vs_NR_dex=mw(x_d) if cd else np.nan,
@@ -216,7 +215,7 @@ def factor_row(fig, spec, lab, first, last):
         if D["unreliable"]:
             ax.text(0.98, 0.97, f"dex not shown\n(ρ = {D['rho']:.2f} with control)", transform=ax.transAxes,
                     ha="right", va="top", fontsize=5.4, color="#555555")
-        elif D["xd"] is not None and D["rho"] < CAVEAT_RHO and lab != "GR":     # GR: low rho is expected
+        elif NOTES_ON_PANELS and D["xd"] is not None and D["rho"] < CAVEAT_RHO and lab != "GR":
             ax.text(0.02, 0.97, f"caution: dex track\nρ = {D['rho']:.2f} with control", transform=ax.transAxes,
                     ha="left", va="top", fontsize=5.4, color="#B03A2E")
         ax.set_xlabel("Distance (kb)" if last else ""); ax.set_ylabel(f"{lab}\nmean signal", fontweight="bold")
@@ -257,7 +256,7 @@ def factor_row(fig, spec, lab, first, last):
         ax.set_xticks(range(3)); ax.set_xticklabels(ORDER)
         for tl, g in zip(ax.get_xticklabels(), ORDER): tl.set_color(CLS[g]); tl.set_fontweight("bold")
         ax.set_ylabel("Δ rank vs NR with\nsimilar baseline")
-        if D["rho"] < CAVEAT_RHO and lab != "GR":
+        if NOTES_ON_PANELS and D["rho"] < CAVEAT_RHO and lab != "GR":
             ax.text(0.5, 0.02, f"caution: ρ = {D['rho']:.2f}", transform=ax.transAxes, ha="center", va="bottom",
                     fontsize=5.4, color="#B03A2E")
         if first: ax.set_title("Dex-associated change\nper enhancer (median)", fontsize=7)

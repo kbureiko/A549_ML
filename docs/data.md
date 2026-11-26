@@ -9,7 +9,9 @@ in `paths.toml`. Names in `code font` are file or folder names that the scripts 
 |---|---|---|
 | `202208_prematrix.csv` | tab-separated | one row per enhancer: `chr`, `start`, `end`; the PRO-seq dex-vs-control statistics (`ctrl vs. dex Log2 Fold Change`, `ctrl vs. dex p-value`, `ctrl vs. dex adj. p-value`); one column per ENCODE signal track, named `<target>_<treatment>_<dose>_<duration>_<ENCODE file accession>` |
 | `atac_matrix.csv` | tab-separated, row index | `ATAC_ctrl`, `ATAC_dex_1h` |
-| `matrix_motifs.csv` | tab-separated, row index | one column per HOMER motif (score; > 0 is counted as motif present) |
+| `matrix_motifs.csv` | tab-separated, row index | one column per HOMER motif (score; > 0 is counted as motif present); used when `MOTIF_SET = "original"` |
+| `matrix_motif_groups.tsv` | tab-separated, row index, `enhancer_id` | written by `scripts/21_motif_groups.py` from the HOMER tables of `scripts/18`: `motif::<group>` (representative motif of each group of correlated motifs, present / absent) and `motifscore::GRE(NR),IR3` (best GRE score); matched on `enhancer_id` |
+| `matrix_neighbourhood.tsv` | tab-separated, row index, `enhancer_id` | written by `scripts/19_neighbourhood_features.py`: other enhancers and GR peaks around each enhancer; matched on `enhancer_id` |
 | `20220908_annotation.csv` | tab-separated, row index | genomic annotation of the enhancer (first column is used) |
 | `20220919_annotation.csv` | tab-separated, row index | `Distance to TSS` |
 | `20220919_gc_content.csv` | `;`-separated, row index | `5_pct_gc` |

@@ -59,6 +59,7 @@ from sklearn.metrics import (roc_auc_score, average_precision_score, balanced_ac
                              f1_score, precision_score, recall_score)
 
 from a549_enhancers import paths
+from a549_enhancers.config import N_REPEATS, N_SPLITS, VARIANCE_THRESHOLD   # same settings as scripts/01_run_cv.py
 from a549_enhancers.thresholding import choose_threshold_from_scores
 
 warnings.filterwarnings("ignore")
@@ -69,10 +70,8 @@ RUNS = {"NR vs UP": paths.RUN_NAMES["nr_vs_up"],            # folder names of th
         "NR vs DN": paths.RUN_NAMES["nr_vs_dn"],
         "UP vs DN": paths.RUN_NAMES["up_vs_dn"]}
 
-# these four reproduce the published runs (summaries/run_metadata.json)
-N_SPLITS, N_REPEATS = 5, 5
+# folds, repeats and the variance filter are read from config.py, as in the runs themselves
 INNER_SPLITS = 3                       # inner CV used to pick the decision threshold
-VARIANCE_THRESHOLD = 5.0               # fitted on the training fold only; numeric features
 CATEGORICAL_COLS = ["annotation"]      # categorical for CatBoost, together with the motif_binary:: columns
 
 BLOCK = 5_000_000                      # genomic block size for the block-held-out scheme
@@ -189,6 +188,25 @@ def init_worker(threads):
     CATBOOST["thread_count"] = threads
 
 
+def group_folds(groups, y, n_splits, seed):
+    """Folds that keep every group (chromosome or block) together, with a different assignment for every seed.
+    Groups are taken in random order and each goes to the fold that so far has the fewest enhancers of the positive
+    class (ties: fewest enhancers), so the folds are balanced in both. StratifiedGroupKFold is not used because its
+    assignment is practically the same for every random state, which made the repeats identical."""
+    rng = np.random.RandomState(seed)
+    groups, y = np.asarray(groups), np.asarray(y)
+    ids = rng.permutation(np.unique(groups))
+    pos = {k: int(y[groups == k].sum()) for k in ids}
+    size = {k: int((groups == k).sum()) for k in ids}
+    fold_of, n_pos, n_all = {}, np.zeros(n_splits), np.zeros(n_splits)
+    for k in ids:
+        f = int(np.lexsort((rng.rand(n_splits), n_all, n_pos))[0])
+        fold_of[k] = f
+        n_pos[f] += pos[k]; n_all[f] += size[k]
+    assigned = np.array([fold_of[k] for k in groups])
+    return [(np.flatnonzero(assigned != f), np.flatnonzero(assigned == f)) for f in range(n_splits)]
+
+
 def split_for(task, scheme, rep):
     """Deterministic outer split, so a fold is identical wherever the job runs."""
     _, X, y, chrom, mid, _ = load_cached(task)
@@ -196,8 +214,7 @@ def split_for(task, scheme, rep):
         return list(StratifiedKFold(N_SPLITS, shuffle=True, random_state=rep).split(X, y))
     g = pd.factorize(chrom)[0] if scheme == "chromosome" else \
         pd.factorize(pd.Series(chrom) + "_" + (mid // BLOCK).astype(str))[0]
-    perm = np.random.RandomState(rep).permutation(g.max() + 1)                   # shuffle group order
-    return list(StratifiedGroupKFold(N_SPLITS, shuffle=True, random_state=rep).split(X, y, perm[g]))
+    return group_folds(g, y, N_SPLITS, rep)
 
 
 def fold_job(task, scheme, rep, k):

@@ -1,25 +1,28 @@
 # =============================================================================
 # Supplementary Figure S1 - performance and validity of the three pairwise CatBoost models
-#   A  ROC curves  B  precision-recall curves: out-of-fold predictions of the published 5 x 5 repeated stratified CV;
-#      line = mean over the 5 repeats (each repeat pools its 5 held-out folds), band = range over repeats.
-#      Legend: mean +/- SD over the 25 folds. B: dashed = chance (share of the positive class).
-#   C  ROC AUC over the 25 folds next to the label-permutation null (99 permutations; band = min to 95th
+#   A  ROC curves  B  precision-recall curves: out-of-fold predictions of the 5-fold x 10-repeat stratified CV;
+#      line = mean over the repeats (each repeat pools its 5 held-out folds), band = range over repeats.
+#      Legend: mean +/- SD over all held-out folds (N_EVAL). B: dashed = chance (share of the positive class).
+#   C  ROC AUC over all held-out folds (N_EVAL) next to the label-permutation null (99 permutations; band = min to 95th
 #      percentile, dashed = null mean).
 #   D  simple baselines vs the full model: ROC AUC of single features (GR dex ChIP signal, GR peak, enhancer length,
-#      GC content) scored on the same 25 held-out folds; the direction of each feature is taken from the training
+#      GC content) scored on the same held-out folds; the direction of each feature is taken from the training
 #      part of the fold (no fitting otherwise). Bars = mean +/- SD over folds.
-#   E  stability: Spearman correlation of the out-of-fold scores of the same enhancers between the 5 CV repeats
-#      (10 pairs per task).
+#   E  stability: Spearman correlation of the out-of-fold scores of the same enhancers between the CV repeats
+#      (45 pairs per task with 10 repeats).
 #   F  genomic-position check (scripts/05_cv_scheme_comparison.py): the same model with random stratified folds,
 #      whole chromosomes held out, or 5 Mb blocks held out; ROC AUC and AP, mean +/- SD and folds; dashed = chance.
-#      For UP vs DN that script scores DN as the positive class (AP chance = DN share), unlike the published run.
+#      For UP vs DN that script scores DN as the positive class (AP chance = DN share), unlike the published run;
+#      the average-precision panel marks this under the task name ("DN+").
 #   G  pre-existing context vs the state that accompanies the response (scripts/06_feature_set_models.py): the same model
 #      retrained on restricted feature sets - sequence / genomic features only; these + control (EtOH or untreated)
 #      signals = control-only; these + dex-treated signals = dex-only; all features. All four sets use identical
-#      folds (5 x 5 repeated stratified CV; these splits are drawn independently of the published runs in A-F, so
-#      "all features" is a retrained model and its ROC AUC differs from A-F in the third decimal).
-#      Left: ROC AUC, mean +/- SD over the 25 folds. Right: mean paired difference in ROC AUC between feature sets
-#      on the same folds, with the Nadeau-Bengio corrected resampled t-test (accounts for overlapping training sets).
+#      folds (repeated stratified CV; scripts/06 is run with fewer repeats than the published runs, e.g. 5 x 5 = 25 folds, and
+#      these splits are drawn independently of the published runs in A-F, so "all features" is a retrained model and its
+#      ROC AUC differs from A-F in the third decimal).
+#      Left: ROC AUC, mean +/- SD over the held-out folds of that run. Right: mean paired difference in ROC AUC between
+#      feature sets on the same folds, with the Nadeau-Bengio corrected resampled t-test (accounts for overlapping training
+#      sets); P values adjusted over all comparisons of the panel (Benjamini-Hochberg).
 # Positive class: NR vs UP -> UP, NR vs DN -> DN, UP vs DN -> UP (published runs). ROC AUC does not depend on it.
 # Inputs: RUNS/<run>/summaries/{all_cv_metrics,all_cv_predictions}.csv; FM; PERM_DIR null; RES (CV-scheme TSVs);
 #   feature_sets_folds.tsv (FSETS, or searched under RES / PROJECT / ML).
@@ -37,7 +40,10 @@ from matplotlib import font_manager
 from scipy import stats
 from sklearn.metrics import roc_curve, precision_recall_curve, roc_auc_score
 
+from a549_enhancers.config import N_REPEATS, N_SPLITS
 from a549_enhancers.paths import PROJECT, ML, FIGURES, RUNS as RUN_DIRS   # local folders, set in paths.toml
+
+N_EVAL = N_SPLITS * N_REPEATS      # held-out evaluations per model (config.py)
 FINAL = FIGURES; FINAL.mkdir(parents=True, exist_ok=True)   # final figures + their tables
 RUNS = {"NR vs UP": RUN_DIRS["nr_vs_up"],
         "UP vs DN": RUN_DIRS["up_vs_dn"],
@@ -45,6 +51,7 @@ RUNS = {"NR vs UP": RUN_DIRS["nr_vs_up"],
 PERM_NULL = ML / "label_permutation_test" / "null_distribution_mean_over_folds_1rep.csv"
 FM = ML / "feature_matrix_all_classes_GRannotated.csv"
 RES = ML / "cv_scheme_comparison"   # output folder of scripts/05_cv_scheme_comparison.py (its default)
+FS_MIN_FOLDS = N_SPLITS * 3   # panel G: smallest complete run accepted (scripts/06 is usually run with 5 repeats = 25 folds)
 FSETS = None    # panel G: full path to feature_sets_folds.tsv; None = newest complete copy under RES / PROJECT / ML
 TASKS = list(RUNS)
 
@@ -72,7 +79,7 @@ for t, r in RUNS.items():
     p["y"] = (p.true_label == pos).astype(int); p["score"] = p[f"proba_{pos}"]
     p["yhat"] = (p.pred_label == pos).astype(int)
     PRED[t] = p
-    assert len(MET[t]) == 25, f"{t}: expected 25 folds"
+    assert len(MET[t]) == N_EVAL, f"{t}: expected {N_EVAL} folds"
 POS = {t: PRED[t].positive_label.iloc[0] for t in TASKS}
 NEG = {t: PRED[t].negative_label.iloc[0] for t in TASKS}
 perm = pd.read_csv(PERM_NULL) if PERM_NULL.exists() else None
@@ -90,7 +97,7 @@ print("panel F uses", FOLDS_FILE, "| schemes:", sorted(folds.scheme.unique()), "
 
 # feature-set models (panel G): per-fold table written by scripts/06_feature_set_models.py
 def load_feature_sets():
-    """Newest feature_sets_folds.tsv that holds 25 folds for every task x feature set (skips partial test runs)."""
+    """Newest feature_sets_folds.tsv with the same number of folds (at least FS_MIN_FOLDS) for every task x feature set."""
     name = "feature_sets_folds.tsv"
 
     def walk(root):                                      # like rglob, but skips environments and hidden folders
@@ -109,11 +116,12 @@ def load_feature_sets():
         d = pd.read_csv(f, sep="\t")
         d = d[d.task.isin(TASKS) & d.feature_set.isin(SETS)]
         n = d.groupby(["task", "feature_set"]).size().reindex(want, fill_value=0)
-        if (n == 25).all():
+        if n.min() == n.max() and n.min() >= FS_MIN_FOLDS:
             return f, d.reset_index(drop=True)
-        seen.append(f"{f}: folds per task x feature set between {n.min()} and {n.max()} (need 25)")
+        seen.append(f"{f}: folds per task x feature set between {n.min()} and {n.max()} (need the same number, "
+                    f"at least {FS_MIN_FOLDS})")
     raise FileNotFoundError(
-        f"Panel G needs {name} from scripts/06_feature_set_models.py with 25 folds for each of {SETS} in each task. "
+        f"Panel G needs {name} from scripts/06_feature_set_models.py with a complete run for each of {SETS} in each task. "
         + ("Checked: " + "; ".join(seen) if seen else f"No {name} under {RES}, {PROJECT} or {ML}.")
         + " Set FSETS at the top to the full path of the file.")
 
@@ -128,7 +136,8 @@ def corrected_ttest(d, n_train, n_test):
 
 
 FS_FILE, FS = load_feature_sets()
-print("panel G uses", FS_FILE)
+N_FS = int(FS.groupby(["task", "feature_set"]).size().iloc[0])      # held-out folds per feature set in that run
+print("panel G uses", FS_FILE, f"({N_FS} folds per feature set)")
 FS_SUM = FS.groupby(["task", "feature_set"]).roc_auc.agg(["mean", "std", "count"]).reindex(
     pd.MultiIndex.from_product([TASKS, SETS], names=["task", "feature_set"])).reset_index()
 rows = []
@@ -137,17 +146,28 @@ for t in TASKS:
     for a_, b_ in SET_PAIRS:
         A = g[g.feature_set == a_].set_index(["repeat", "fold"]); B = g[g.feature_set == b_].set_index(["repeat", "fold"])
         idx = A.index.intersection(B.index)
-        assert len(idx) == 25, f"{t}: {a_} and {b_} do not share the same 25 folds"
+        assert len(idx) == N_FS, f"{t}: {a_} and {b_} do not share the same {N_FS} folds"
         d = A.loc[idx, "roc_auc"] - B.loc[idx, "roc_auc"]
         tt, pp = corrected_ttest(d, A.loc[idx, "n_train"].mean(), A.loc[idx, "n_test"].mean())
         rows.append({"task": t, "comparison": f"{SET_LAB[a_]} − {SET_LAB[b_]}", "metric": "roc_auc", "n_folds": len(idx),
                      "mean_diff": d.mean(), "sd_diff": d.std(ddof=1), "folds_first_better": int((d > 0).sum()),
                      "t_corrected": tt, "p_corrected": pp})
 FSP = pd.DataFrame(rows)
+
+
+def bh_adjust(p):
+    """Benjamini-Hochberg adjusted P values (all comparisons of panel G together)."""
+    p = np.asarray(p, float); o = np.argsort(p); m = len(p)
+    adj = np.empty(m); adj[o] = np.minimum.accumulate((p[o] * m / np.arange(1, m + 1))[::-1])[::-1]
+    return np.clip(adj, 0, 1)
+
+
+FSP["p_adjusted_BH"] = bh_adjust(FSP.p_corrected.values)
 FS_SUM.round(4).to_csv(FINAL / "S1_feature_sets.tsv", sep="\t", index=False)
 FSP.round({"mean_diff": 4, "sd_diff": 4, "t_corrected": 3}).to_csv(FINAL / "S1_feature_sets_paired.tsv", sep="\t", index=False)
 print(FS_SUM.pivot(index="feature_set", columns="task", values="mean").reindex(index=SETS, columns=TASKS).round(3))
-print(FSP.assign(p=FSP.p_corrected.map("{:.2g}".format))[["task", "comparison", "mean_diff", "p"]].round(3).to_string(index=False))
+print(FSP.assign(p=FSP.p_corrected.map("{:.2g}".format), p_adj=FSP.p_adjusted_BH.map("{:.2g}".format))[
+    ["task", "comparison", "mean_diff", "p", "p_adj"]].round(3).to_string(index=False))
 
 METRICS = [("balanced_accuracy", "Balanced\naccuracy"), ("roc_auc", "ROC AUC"), ("average_precision", "Average\nprecision"),
            ("positive_precision", "Precision"), ("positive_recall", "Recall"), ("positive_f1", "F1")]
@@ -160,7 +180,11 @@ print(summ.pivot(index="metric", columns="task", values="mean").round(3))
 fm = pd.read_csv(FM, low_memory=False).set_index("enhancer_id")
 gr_col = next(c for c in fm.columns if c.startswith("NR3C1_") and "_dex_" in c)
 BASE = {"GR dex signal": fm[gr_col], "GR peak": fm.GR_bound.astype(str).str.lower().eq("true").astype(float),
-        "Enhancer length": fm.Enh_len, "GC content": fm.gc}
+        "Enhancer length": fm["Enh_len"] if "Enh_len" in fm else fm["end"] - fm["start"]}
+if "gc" in fm:
+    BASE["GC content"] = fm["gc"]
+else:
+    print("NOTE: no 'gc' column in", FM.name, "- the GC content baseline is left out of panel D")
 BCOL = {"GR dex signal": "#5B4B9A", "GR peak": "#9C8FCB", "Enhancer length": "#B07A3A", "GC content": "#C9B79C",
         "Full model": "#333333"}
 rows = []
@@ -253,7 +277,7 @@ def plot_auc_null(ax):
     ax.set_xticks(range(len(TASKS))); ax.set_xticklabels(TASKS, rotation=35, ha="right", fontsize=6)
     for tl, t in zip(ax.get_xticklabels(), TASKS):
         tl.set_color(TASK_COL[t])
-    ax.set_ylim(0.3, 1.02); ax.set_ylabel("ROC AUC (25 outer-CV folds)")
+    ax.set_ylim(0.3, 1.02); ax.set_ylabel(f"ROC AUC ({N_EVAL} outer-CV folds)")
     ax.set_title("vs label-permutation null", fontsize=7)
     ax.legend(handles=[mpl.patches.Patch(color="#555555", alpha=0.3, label="null (99 perm.)")], frameon=False,
               loc="lower left", fontsize=5.6, handlelength=1.0)
@@ -288,7 +312,7 @@ def plot_stability(ax):
     for tl, t in zip(ax.get_xticklabels(), TASKS):
         tl.set_color(TASK_COL[t])
     ax.set_xlim(-0.65, 2.65)                                 # room for the "min" labels inside the axes
-    ax.set_ylim(0.84, 1.0); ax.set_ylabel("Spearman ρ of enhancer scores\nbetween CV repeats")
+    ax.set_ylim(min(0.84, min(v.min() for v in STAB.values()) - 0.04), 1.0); ax.set_ylabel("Spearman ρ of enhancer scores\nbetween CV repeats")
     ax.set_title("Prediction stability", fontsize=7)
 
 
@@ -312,7 +336,7 @@ def plot_metrics(axs):
         ax.set_ylim(0, 1.03); ax.set_title(lab, fontsize=6.8, pad=2)
         if ax is not axs[0]:
             ax.set_yticklabels([])
-    axs[0].set_ylabel("score (25 outer-CV folds)")
+    axs[0].set_ylabel(f"score ({N_EVAL} outer-CV folds)")
 
 
 def plot_schemes(axs):
@@ -331,7 +355,12 @@ def plot_schemes(axs):
             base = sub.loc[sub.scheme == "random", m].mean()
             dmax = max(abs(sub.loc[sub.scheme == s, m].mean() - base) for s in schemes)
             ax.text(i, min(sub[m].max() + 0.02, 1.02), f"|Δ| ≤ {dmax:.3f}", ha="center", va="bottom", fontsize=5.4)
-        ax.set_xticks(range(len(TASKS))); ax.set_xticklabels(TASKS, fontsize=6.2)
+        labs = []
+        for t in TASKS:                                   # average precision depends on the positive class
+            sub = folds[folds.task == t]
+            other = m == "average_precision" and abs((sub.n_pos / sub.n_test).mean() - PRED[t].y.mean()) > 0.05
+            labs.append(f"{t}\n({NEG[t]}+)" if other else t)
+        ax.set_xticks(range(len(TASKS))); ax.set_xticklabels(labs, fontsize=6.2)
         ax.set_ylim(0, 1.12); ax.set_yticks([0, 0.25, 0.5, 0.75, 1]); ax.set_ylabel(lab)
     h = [mpl.patches.Patch(color=SCHEME[s], label=SCHEME_LAB[s]) for s in schemes] + \
         [mpl.lines.Line2D([], [], ls="--", color="#222222", lw=0.7, label="chance")]
@@ -354,7 +383,7 @@ def plot_feature_sets(ax):
     for tl, t in zip(ax.get_xticklabels(), TASKS):
         tl.set_color(TASK_COL[t])
     ax.set_ylim(0.4, 1.14); ax.set_yticks([0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]); ax.spines["left"].set_bounds(0.4, 1.0)
-    ax.set_ylabel("ROC AUC (25 folds)")
+    ax.set_ylabel(f"ROC AUC ({N_FS} folds)")
     ax.legend(frameon=False, ncol=4, loc="lower left", bbox_to_anchor=(-0.02, 1.0), fontsize=5.6, handlelength=1.0,
               columnspacing=0.8, handletextpad=0.4)
 
@@ -362,13 +391,13 @@ def plot_feature_sets(ax):
 def plot_feature_set_tests(ax):
     comps = [f"{SET_LAB[a_]} − {SET_LAB[b_]}" for a_, b_ in SET_PAIRS]
     M = FSP.pivot(index="comparison", columns="task", values="mean_diff").reindex(index=comps, columns=TASKS)
-    Pv = FSP.pivot(index="comparison", columns="task", values="p_corrected").reindex(index=comps, columns=TASKS)
+    Pv = FSP.pivot(index="comparison", columns="task", values="p_adjusted_BH").reindex(index=comps, columns=TASKS)
     vmax = float(np.nanmax(np.abs(M.to_numpy())))
     ax.imshow(M.to_numpy(), cmap="RdBu_r", vmin=-vmax, vmax=vmax, aspect="auto")
     for i in range(M.shape[0]):
         for j in range(M.shape[1]):
             d, pv = M.iat[i, j], Pv.iat[i, j]
-            ptxt = "P < 0.001" if pv < 0.001 else (f"P = {pv:.3f}" if pv < 0.01 else f"P = {pv:.2f}")
+            ptxt = "adj. P < 0.001" if pv < 0.001 else (f"adj. P = {pv:.3f}" if pv < 0.1 else f"adj. P = {pv:.2f}")
             ax.text(j, i, f"{d:+.3f}\n{ptxt}".replace("-", "−"), ha="center", va="center", fontsize=5.3, linespacing=1.05,
                     color="white" if abs(d) > 0.62 * vmax else "#222222")
     ax.set_xticks(range(len(TASKS))); ax.set_xticklabels(TASKS, fontsize=6.2); ax.xaxis.tick_top()
@@ -379,7 +408,7 @@ def plot_feature_set_tests(ax):
     ax.grid(which="minor", color="white", lw=1.2); ax.tick_params(which="both", length=0, pad=2)
     for sp in ax.spines.values():
         sp.set_visible(False)
-    ax.set_title("Δ ROC AUC on identical folds\n(corrected resampled t-test)", fontsize=6.8, pad=4)
+    ax.set_title("Δ ROC AUC on identical folds\n(corrected resampled t-test, BH-adjusted)", fontsize=6.8, pad=4)
 
 
 def plot_thresholds(ax):

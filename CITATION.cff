@@ -7,11 +7,11 @@ license: MIT
 authors:
   - family-names: Bureiko
     given-names: Kseniia
-
+# Fill in when the article is out:
 # preferred-citation:
 #   type: article
 #   title: "..."
-#   journal:
-#   year:
+#   journal: "Genome Biology"
+#   year: 2026
 #   doi: "..."
 #   authors: [...]

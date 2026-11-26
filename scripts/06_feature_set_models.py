@@ -53,6 +53,7 @@ from sklearn.metrics import (average_precision_score, balanced_accuracy_score, f
 from sklearn.model_selection import StratifiedKFold
 
 from a549_enhancers import paths
+from a549_enhancers.config import N_REPEATS, N_SPLITS, VARIANCE_THRESHOLD as VAR_THR   # as in scripts/01_run_cv.py
 from a549_enhancers.thresholding import choose_threshold_from_scores
 
 warnings.filterwarnings("ignore")
@@ -62,14 +63,13 @@ ML = paths.ML                                               # [results] ml_outpu
 RUNS = {"NR vs UP": paths.RUN_NAMES["nr_vs_up"],            # folder names of the finished runs ([runs] in paths.toml)
         "NR vs DN": paths.RUN_NAMES["nr_vs_dn"],
         "UP vs DN": paths.RUN_NAMES["up_vs_dn"]}
-N_SPLITS, N_REPEATS, INNER_SPLITS = 5, 5, 3
-VAR_THR = 5.0                       # numeric features; fitted on the training fold
+INNER_SPLITS = 3                    # folds, repeats and the variance filter (VAR_THR) are read from config.py
 CATEGORICAL = ["annotation"]
 CATBOOST = dict(iterations=800, learning_rate=0.03, depth=6, l2_leaf_reg=3, rsm=1, border_count=128,
                 bootstrap_type="Bayesian", bagging_temperature=1, random_strength=1, loss_function="Logloss",
                 eval_metric="PRAUC", random_seed=42, allow_writing_files=False, verbose=0,
                 auto_class_weights="Balanced")          # as in config.CATBOOST_PARAMS
-GENOMIC = {"annotation", "Distance to TSS", "Enh_len", "gc"}
+GENOMIC = {"annotation", "Distance to TSS", "Enh_len", "gc", "GRE_score"}
 PAIRS_TESTED = [("baseline", "genomic"), ("dex", "genomic"), ("dex", "baseline"), ("combined", "baseline"),
                 ("combined", "dex"), ("change", "dex")]
 METRICS = ["balanced_accuracy", "roc_auc", "average_precision", "positive_f1"]
@@ -95,6 +95,10 @@ def feature_layer(col):
     """'genomic', 'baseline' or 'dex' from the column name (the naming of the assembled matrix)."""
     if col.startswith("motif_binary::") or col in GENOMIC:
         return "genomic"
+    if col.startswith(("nbr_GRpeak", "nbr_strongGRpeak")):      # GR peaks after dex around the enhancer
+        return "dex"
+    if col.startswith("nbr_enhancer"):                          # other enhancers around the enhancer
+        return "baseline"
     if "_dex" in col:                                   # *_dex_100_1 hour_ENCFF..., ATAC_dex_1h
         return "dex"
     if "_eth_" in col or col == "ATAC_ctrl" or re.match(r"^[\w.]+_ENCFF\w+$", col):
@@ -116,9 +120,11 @@ def load(task):
         if c not in CATEGORICAL:
             X[c] = pd.to_numeric(X[c], errors="coerce")
     layers = {c: feature_layer(c) for c in X.columns}
-    # change features: log2((dex + 0.25) / (EtOH + 0.25)) for marks with both an EtOH and a dex track
-    eth = {mark_of(c): c for c, l in layers.items() if l == "baseline" and ("_eth_" in c or c == "ATAC_ctrl")}
-    dex = {mark_of(c): c for c, l in layers.items() if l == "dex"}
+    # change features: log2((dex + 0.25) / (EtOH + 0.25)) for marks with both a control and a dex track
+    signal = [c for c in layers if not c.startswith("nbr_")]
+    eth = {mark_of(c): c for c in signal if layers[c] == "baseline"}       # one control track per target (config)
+    dex = {mark_of(c): c for c in signal if layers[c] == "dex"}
+    assert len(eth) == sum(layers[c] == "baseline" for c in signal), "more than one control track for a target"
     change = {f"log2FC::{m}": np.log2(X[dex[m]] + 0.25) - np.log2(X[eth[m]] + 0.25) for m in sorted(set(eth) & set(dex))}
     X = pd.concat([X, pd.DataFrame(change)], axis=1)
     layers.update({c: "change" for c in change})

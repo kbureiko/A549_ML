@@ -14,8 +14,8 @@
 #     model on its own task must be > 0.5).
 #   * Rules are mapped back to the feature (LIME as_map) and to the quartile bin of the rule
 #     (bin 0 = lowest quartile ... n_bins-1 = highest), so the summaries can say "high X" / "low X".
-#   * Feature groups (dex / control / delta / motif / genomic / other) come from the feature name tokens and
-#     the motif column list, not from substrings of the rule text; check A_feature_groups.csv once.
+#   * Feature groups (motif / genomic / control / dex) follow the layer rules of the pipeline
+#     (a549_enhancers.feature_groups), not substrings of the rule text; see lime_feature_groups.csv.
 #   * Reproducible per enhancer (seed + row position), parallel (--n-jobs), checkpointed per chunk
 #     (rerunning resumes; delete <task>/chunks to start again).
 #   * Optional stability check: a random subset re-explained with another seed (--stability-n).
@@ -63,6 +63,7 @@ import pandas as pd
 warnings.filterwarnings("ignore", category=pd.errors.PerformanceWarning)   # fragmented-frame warnings from feature building
 
 from a549_enhancers import paths
+from a549_enhancers.feature_groups import feature_layer
 from a549_enhancers.compat import register_legacy_modules
 
 register_legacy_modules()   # run folders written before the code was a package store preprocessing.FoldPreprocessor
@@ -91,8 +92,9 @@ def parse_args():
     p.add_argument("--num-samples", type=int, default=5000, help="LIME perturbations per enhancer")
     p.add_argument("--n-jobs", type=int, default=4)
     p.add_argument("--chunk-size", type=int, default=100)
-    p.add_argument("--tasks-per-worker", type=int, default=10,
-                   help="chunks a worker process handles before it is replaced (frees memory CatBoost/pandas keep); 0 = never")
+    p.add_argument("--tasks-per-worker", type=int, default=0,
+                   help="chunks a worker process handles before it is replaced; 0 = never (default). Replacing "
+                        "workers can stall the pool on Windows, and the final models are small, so it is off.")
     p.add_argument("--stability-n", type=int, default=200, help="enhancers per class re-run with another seed; 0 = skip")
     p.add_argument("--random-seed", type=int, default=123)
     return p.parse_args()
@@ -318,21 +320,12 @@ class Predictor:
 
 
 def feature_group(name, motif_cols):
-    """dex / control / delta / motif / genomic / other, from name tokens (checked in lime_feature_groups.csv)."""
-    tok = {t.lower() for t in re.split(r"[^A-Za-z0-9]+", name) if t}
-    low = name.lower()
-    if name in motif_cols or "motif" in tok or low.startswith("motif"):
+    """motif / genomic / control / dex, with the layer rules of the pipeline (a549_enhancers.feature_groups):
+    tracks without dex in the name (EtOH and untreated) and the enhancer density are 'control'; dex tracks and the
+    GR peaks around the enhancer are 'dex'. Written to lime_feature_groups.csv."""
+    if name in motif_cols or str(name).startswith("motif"):
         return "motif"
-    if tok & {"log2fc", "delta", "diff", "lfc"}:
-        return "delta"
-    if any(t.startswith("dex") for t in tok):
-        return "dex"
-    if tok & {"ctrl", "control", "etoh", "ethanol", "veh", "vehicle", "untreated", "basal"}:
-        return "control"
-    if tok & {"length", "len", "gc", "cpg", "tss", "distance", "dist", "intergenic", "intronic", "intron",
-              "exon", "promoter", "annotation", "conservation", "phastcons", "phylop"}:
-        return "genomic"
-    return "other"
+    return feature_layer(name)
 
 
 # ----------------------------------------------------------------------------- workers
@@ -425,7 +418,7 @@ def add_class_medians(summ, X_task, enh):
     return summ
 
 
-def run_positions(positions, init_args, seed, n_jobs, chunk_size, chunk_dir=None, label="", tasks_per_worker=10):
+def run_positions(positions, init_args, seed, n_jobs, chunk_size, chunk_dir=None, label="", tasks_per_worker=0):
     chunks = [positions[i:i + chunk_size] for i in range(0, len(positions), chunk_size)]
     rows, info, todo = [], [], []
     for i, ch in enumerate(chunks):

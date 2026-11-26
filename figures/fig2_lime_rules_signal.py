@@ -1,6 +1,6 @@
 # =============================================================================
 # Figure 2 - LIME rules of the three final CatBoost models and signal around the enhancer classes
-#   A-C  LIME butterflies: rules favouring each class of a model (definitions: header of scripts/03_lime_rules_final_models.py).
+#   A-C  LIME butterflies: rules with a weight towards each class of a model (definitions: header of scripts/03_lime_rules_final_models.py).
 #        Bar = mean contribution of the displayed rule per enhancer of the class; label = rule (quartile bin) and %
 #        of the class's enhancers whose explanation contains it with a weight towards the class.
 #   D-Q  heatmaps from the deepTools matrices (one lettered panel per track): rows = NR / UP / DN enhancers (NR sorted
@@ -23,6 +23,7 @@ import matplotlib.pyplot as plt
 from matplotlib import font_manager
 
 from a549_enhancers.paths import PROJECT, ML, FIGURES, CHIP_MATRICES, PROSEQ_MATRICES   # local folders, set in paths.toml
+from a549_enhancers.feature_groups import feature_layer
 HEAT = CHIP_MATRICES                        # ChIP / ATAC matrices (regions: NR_ctrlPlusDex_sorted, UP_sorted_by_dex, DN_sorted_by_ctrl)
 PRO = PROSEQ_MATRICES                        # PRO-seq matrices: ctrl/dex x plus/minus + sorted BEDs
 ML_ROOT = ML
@@ -97,7 +98,7 @@ mpl.rcParams.update({
 })
 CLS = {"UP": "#D1495B", "DN": "#3B6FB6", "NR": "#5DAA82"}
 CAT_ORDER = ["Dex", "Control", "Genomic"]
-CAT_LABEL = {"Dex": "Dex-treated (ChIP, ATAC)", "Control": "Control / untreated", "Genomic": "Sequence / genomic"}
+CAT_LABEL = {"Dex": "After dex (ChIP, ATAC, GR peaks nearby)", "Control": "Control / untreated", "Genomic": "Sequence / genomic"}
 CAT_BAR = {"Dex": "#2B4C7E", "Control": "#9DB9D5", "Genomic": "#3E9651"}
 CAT_TXT = {"Dex": "#2B4C7E", "Control": "#222222", "Genomic": "#2F7D3F"}
 LEVELS = ["low (Q1, Q1–2)", "intermediate", "high (Q4, Q3–4)"]
@@ -124,16 +125,18 @@ def export_panels(fig, panels, stem, letters, pad=0.04):
 
 
 def category(f):
-    if f.startswith("motif_binary::") or f in ("Enh_len", "Distance to TSS", "annotation", "gc"):
-        return "Genomic"
-    if "_dex_" in f or f == "ATAC_dex_1h":
-        return "Dex"
-    return "Control"
+    """Genomic / Dex / Control, with the layer rules of the pipeline: GR peaks around the enhancer count as dex
+    information, the enhancer density as control, the GRE score as genomic."""
+    return {"genomic": "Genomic", "dex": "Dex", "control": "Control"}[feature_layer(f)]
 
 
 RENAME = {"JUN": "cJUN", "NR3C1": "GR", "H2AFZ": "H2A.Z", "Enh_len": "Enhancer length",
           "POLR2AphosphoS2": "POLR2A pS2", "Distance to TSS": "TSS distance", "gc": "GC content",
-          "annotation": "Annotation"}
+          "annotation": "Annotation", "GRE_score": "GRE score",
+          "nbr_enhancers_50kb": "Enhancers ≤50 kb", "nbr_enhancer_distance": "Nearest enhancer",
+          "nbr_GRpeaks_50kb": "GR peaks ≤50 kb", "nbr_strongGRpeaks_50kb": "Strong GR peaks ≤50 kb",
+          "nbr_GRpeak_distance": "Nearest GR peak",
+          "nbr_strongGRpeak_distance": "Nearest strong GR peak"}
 
 
 MOTIF_RENAME = {"Unknown-ESC-element": "ESC element", "c-Jun-CRE": "cJun-CRE", "RUNX-AML": "RUNX"}
@@ -249,7 +252,7 @@ def butterfly(fig, spec, task, left, right, title):
     feats_ = list(tot.sort_values(ascending=False).head(N_TOP).index)
     names = row_names(feats_)
     n = len(feats_)
-    sub = spec.subgridspec(1, 3, width_ratios=[1, 1.0, 1], wspace=0.0)
+    sub = spec.subgridspec(1, 3, width_ratios=[1, 1.3, 1], wspace=0.0)
     axL, axN, axR = (fig.add_subplot(sub[0, k]) for k in range(3))
     xmax = max(L.w.max(), R.w.max()) * 2.0
     for ax, T, cls, sgn in ((axL, L, left, -1), (axR, R, right, 1)):
@@ -266,10 +269,10 @@ def butterfly(fig, spec, task, left, right, title):
         ax.xaxis.set_major_locator(mpl.ticker.MaxNLocator(3))
         ax.xaxis.set_major_formatter(mpl.ticker.FormatStrFormatter("%g"))
         ax.tick_params(axis="x", labelsize=5.6)
-        ax.set_title(f"favours {cls}", color=CLS[cls], fontsize=7, fontweight="bold", pad=2)
+        ax.set_title(f"towards {cls}", color=CLS[cls], fontsize=7, fontweight="bold", pad=2)
     axN.axis("off"); axN.set_ylim(n - 0.4, -0.7); axN.set_xlim(0, 1)
     for i, (f, nm) in enumerate(zip(feats_, names)):
-        axN.text(0.5, i, nm, ha="center", va="center", fontsize=5.4 if len(nm) <= 13 else (4.9 if len(nm) <= 16 else 4.4),
+        axN.text(0.5, i, nm, ha="center", va="center", fontsize=5.4 if len(nm) <= 16 else (4.9 if len(nm) <= 19 else 4.5),
                  color=CAT_TXT[category(f)])
     ne = n_expl[task]
     axN.set_title(f"{title}\n({left}: {ne[left]:,}, {right}: {ne[right]:,} enhancers)", fontsize=7.2, pad=10,

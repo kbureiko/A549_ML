@@ -4,7 +4,7 @@
 # To keep the file somewhere else, set the environment variable A549_PATHS to its full path.
 
 [inputs]
-# The six input tables of the classifiers and the GR peak file (docs/data.md, section 1)
+# The input tables of the classifiers and the GR peak file (docs/data.md, section 1)
 ml_inputs = "/path/to/ml_inputs"
 
 [results]

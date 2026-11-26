@@ -29,8 +29,8 @@ K = 20                      # matched NR enhancers per UP / DN enhancer
 N_BOOT, SEED = 2000, 0      # bootstrap of the median
 GR_DEX = "NR3C1|_dex_"
 TRACKS = {"ATAC": ("ATAC_ctrl", "ATAC_dex_1h"), "Pol II": ("POLR2A|_eth_", "POLR2A|_dex_"),
-          "H3K27ac": ("H3K27ac|_eth_", "H3K27ac|_dex_"), "FOSL2": ("FOSL2|_eth_", "FOSL2|_dex_"),
-          "EP300": ("EP300_ENCFF842XYY", "EP300|_dex_"), "cJUN": ("JUN_ENCFF957TUK", "JUN|_dex_"),
+          "H3K27ac": ("H3K27ac_ENCFF054OOT", "H3K27ac|_dex_"), "FOSL2": ("FOSL2_ENCFF129REO", "FOSL2|_dex_"),
+          "EP300": ("EP300_ENCFF376VNJ", "EP300|_dex_"), "cJUN": ("JUN_ENCFF957TUK", "JUN|_dex_"),
           "BCL3": ("BCL3_ENCFF856OZJ", "BCL3|_dex_"), "SMC3": ("SMC3_ENCFF029NYA", "SMC3|_dex_"),
           "RAD21": ("RAD21_ENCFF778YHU", "RAD21|_dex_"), "CTCF": ("CTCF_ENCFF083AEY", "CTCF|_dex_"),
           "FOXA1": ("FOXA1|_eth_", "FOXA1|_dex_"), "H2A.Z": ("H2AFZ|_eth_", "H2AFZ|_dex_")}
